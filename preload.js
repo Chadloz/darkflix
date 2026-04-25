@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('darkflix', {
   fetchText:   (url, headers) => ipcRenderer.invoke('net:fetchText', url, headers),
   fetchJson:   (url, headers) => ipcRenderer.invoke('net:fetchJson', url, headers),
   openM3U:     ()           => ipcRenderer.invoke('file:openM3U'),
+  saveLog:     (content)    => ipcRenderer.invoke('file:saveLog', content),
   platform:    process.platform,
 });
 

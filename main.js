@@ -22,8 +22,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 800, minWidth: 800, minHeight: 600,
     backgroundColor: '#0a0a0a',
-    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
-    trafficLightPosition: process.platform === 'darwin' ? { x: 14, y: 10 } : undefined,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    trafficLightPosition: process.platform === 'darwin' ? { x: 14, y: 16 } : undefined,
     title: 'Darkflix',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -84,6 +84,17 @@ ipcMain.handle('net:fetchJson', async (e, url, headers = {}) => {
     console.error(`[DEBUG][Main] net:fetchJson - Status: Error - Payload: ${e.message}`);
     return { ok: false, error: e.message };
   }
+});
+
+ipcMain.handle('file:saveLog', async (e, content) => {
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Save Debug Log',
+    defaultPath: 'darkflix-debug-'+new Date().toISOString().slice(0,10)+'.txt',
+    filters: [{ name: 'Text Files', extensions: ['txt'] }],
+  });
+  if (canceled || !filePath) return { ok: false };
+  try { fs.writeFileSync(filePath, content); return { ok: true }; }
+  catch(e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('file:openM3U', async () => {

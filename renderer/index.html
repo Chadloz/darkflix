@@ -370,6 +370,7 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
           <button class="btn sm" onclick="document.getElementById('dbgBox').style.display=document.getElementById('dbgBox').style.display==='none'?'block':'none'">Toggle</button>
           <button class="btn sm" onclick="dbgLines=[];document.getElementById('dbgLog').textContent=''">Clear</button>
           <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('dbgLog').textContent).then(function(){alert('Copied!');})">Copy</button>
+          <button class="btn sm" onclick="saveLogFile()">Save</button>
         </div>
       </div>
       <div id="dbgBox" style="display:none;margin-top:8px">
@@ -497,6 +498,18 @@ function dbg(msg,type='info'){
 let S={accounts:[],live:[],movies:[],series:[],favorites:new Set(),recents:[],settings:{autoplay:true,chNums:true}};
 let CV='home',liveCat='All',mvCat='All',svCat='All',acctTab='xt';
 let activeChId=null,activeItemId=null,hls=null;
+window._userScrolling=false;
+var _scrollTimer=null;
+['mvList','svList'].forEach(function(id){
+  setTimeout(function(){
+    var el=gel(id);
+    if(el)el.addEventListener('scroll',function(){
+      window._userScrolling=true;
+      clearTimeout(_scrollTimer);
+      _scrollTimer=setTimeout(function(){window._userScrolling=false;},1000);
+    });
+  },2000);
+});
 let _editingAcctId=null;
 let _navHistory=[];
 let _mvList=[];
@@ -560,12 +573,28 @@ async function loadState(){
     dbg('loadState - Status: Success - Payload: '+S.accounts.length+' accounts, '+S.live.length+' live','ok');
   }catch(e){dbg('loadState error: '+e.message,'err');}
 }
-async function saveKey(k,v){try{await window.darkflix.storeSet(k,v);}catch(e){dbg('saveKey error: '+e.message,'err');}}
+const _saveQueue={};
+const _saveTimers={};
+async function saveKey(k,v){
+  _saveQueue[k]=v;
+  clearTimeout(_saveTimers[k]);
+  _saveTimers[k]=setTimeout(async function(){
+    try{await window.darkflix.storeSet(k,_saveQueue[k]);}
+    catch(e){dbg('saveKey error: '+e.message,'err');}
+  },500);
+}
+async function saveKeyNow(k,v){
+  try{await window.darkflix.storeSet(k,v);}
+  catch(e){dbg('saveKey error: '+e.message,'err');}
+}
 async function saveAll(){
-  await saveKey('accounts',S.accounts);await saveKey('live',S.live);
-  await saveKey('movies',S.movies);await saveKey('series',S.series);
-  await saveKey('favorites',[...S.favorites]);await saveKey('recents',S.recents);
-  await saveKey('settings',S.settings);
+  await saveKeyNow('accounts',S.accounts);
+  await saveKeyNow('live',S.live);
+  await saveKeyNow('movies',S.movies);
+  await saveKeyNow('series',S.series);
+  await saveKeyNow('favorites',[...S.favorites]);
+  await saveKeyNow('recents',S.recents);
+  await saveKeyNow('settings',S.settings);
 }
 
 // ── Network ───────────────────────────────────────────────────────────────────
@@ -660,7 +689,7 @@ function renderHome(){
   if(S.accounts.length){
     gel('homeSub').innerHTML=S.accounts.map(a=>'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:var(--gd);color:var(--green);font-size:11px;font-weight:600;margin-right:4px">'+E(a.name||'?')+'</span>').join('')+' <span style="color:var(--dim2);font-size:11px">v1.0</span>';
   }else gel('homeSub').textContent='Add an account to get started.';
-  const mkCard=function(c,type){const ini=E(c.name.slice(0,2));return '<div class="card" onclick="playItem(\''+c.id+'\',\''+type+'\')"><div class="card-img">'+(c.logo?'<img src="'+E(c.logo)+'" onerror="this.outerHTML=\'<div class=card-ini>'+ini+'</div>\'">'  :'<div class="card-ini">'+ini+'</div>')+'</div><div class="card-body"><div class="card-name">'+E(c.name)+'</div><div class="card-sub">'+E(c.group||type)+'</div></div></div>';};
+  const mkCard=function(c,type){const ini=E(c.name.slice(0,2));return '<div class="card" onclick="if(!this._busy){this._busy=true;setTimeout(function(el){el._busy=false;},1000,this);playItem(\''+c.id+'\',\''+type+'\')}"><div class="card-img">'+(c.logo?'<img src="'+E(c.logo)+'" onerror="this.outerHTML=\'<div class=card-ini>'+ini+'</div>\'">'  :'<div class="card-ini">'+ini+'</div>')+'</div><div class="card-body"><div class="card-name">'+E(c.name)+'</div><div class="card-sub">'+E(c.group||type)+'</div></div></div>';};
   const sec=function(sid,lid,arr,type){if(arr.length){gel(sid).style.display='';gel(lid).innerHTML=arr.slice(0,20).map(function(c){return mkCard(c,type);}).join('');}else gel(sid).style.display='none';};
   if(S.recents.length){gel('hRecent').style.display='';gel('hRecentList').innerHTML=S.recents.slice(0,15).map(function(r){return mkCard(r,r.type);}).join('');}else gel('hRecent').style.display='none';
   sec('hLive','hLiveList',S.live,'live');sec('hMovies','hMovieList',S.movies,'movie');sec('hSeries','hSeriesList',S.series,'series');
@@ -719,24 +748,63 @@ function renderLive(){
 }
 window.setLiveCat=function(c){liveCat=c;renderLive();saveKey('lastLiveCat',c);};
 
+async function resolveStalkerUrl(ch){
+  const acct=S.accounts.find(function(a){return a.id===ch.acctId&&a.type==='stalker';});
+  if(!acct)return ch.url;
+  try{
+    const hd={
+      'User-Agent':'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
+      'X-User-Agent':'Model: MAG250; Link: Ethernet',
+      'Cookie':'PHPSESSID=null; sn=000000000000; mac='+acct.mac+'; stb_lang=en; timezone=America/New_York'
+    };
+    const hs=await fetchJSON(acct.stkBase+'?type=stb&action=handshake&prehash=0&token=&JsHttpRequest=1-xml',hd);
+    const tk=hs&&hs.js&&hs.js.token;
+    if(!tk)return ch.url;
+    hd['Authorization']='Bearer '+tk;
+    const cmd=encodeURIComponent(ch.cmd||('ffmpeg '+ch.url));
+    const cl=await fetchJSON(acct.stkBase+'?type=itv&action=create_link&cmd='+cmd+'&series=&forced_storage=undefined&disable_ad=0&download=0&force_ch_link_check=0&JsHttpRequest=1-xml',hd);
+    if(cl&&cl.js&&cl.js.cmd){
+      var realUrl=cl.js.cmd;
+      if(realUrl.startsWith('ffmpeg '))realUrl=realUrl.replace('ffmpeg ','');
+      var m=realUrl.match(/(https?:\/\/[^\s]+)/);
+      if(m){realUrl=m[1];}
+      else if(realUrl&&!realUrl.startsWith('http')){
+        // Relative URL — prepend portal base
+        var base=acct.url.replace(/\/server\/load\.php.*/,'').replace(/\/c\/?$/,'');
+        realUrl=base+'/'+realUrl.replace(/^\//,'');
+      }
+      dbg('Stalker create_link OK: '+realUrl.split('/').slice(-2).join('/'),'ok');
+      return realUrl;
+    }
+  }catch(e){dbg('Stalker create_link failed: '+e.message,'warn');}
+  return ch.url;
+}
+
 function playChannel(id){
   const ch=S.live.find(function(c){return c.id===id;});if(!ch)return;
   dbg('playChannel: '+ch.name);
   activeChId=id;addRecent(ch,'live');
   saveKey('lastChannel',id);
   saveKey('lastWatched',null);
-  // Make sure active channel is loaded and visible
+  // Load rows if needed but don't scroll — user stays where they are
   const idx=_liveList.findIndex(function(c){return c.id===id;});
   if(idx>=0&&idx>=_liveShown){
     appendLiveRows(_liveShown,Math.min(idx+20,_liveList.length));
   }
-  setTimeout(function(){
-    var el=document.querySelector('.ch-item.active');
-    if(el)el.scrollIntoView({block:'center',behavior:'smooth'});
-  },150);
   gel('playerBox').style.display='';gel('playerPH').style.display='none';
   gel('nowBar').style.display='flex';gel('nowName').textContent=ch.name;
-  clrErr('liveErr');loadStream(gel('liveVid'),ch.url,'liveErr');renderLive();
+  clrErr('liveErr');
+  var acct=S.accounts.find(function(a){return a.id===ch.acctId;});
+  if(acct&&acct.type==='stalker'){
+    gel('nowName').textContent=ch.name+' (resolving...)';
+    resolveStalkerUrl(ch).then(function(url){
+      gel('nowName').textContent=ch.name;
+      loadStream(gel('liveVid'),url,'liveErr');
+    });
+  }else{
+    loadStream(gel('liveVid'),ch.url,'liveErr');
+  }
+  renderLive();
 }
 function retryLive(){const ch=S.live.find(function(c){return c.id===activeChId;});if(ch){clrErr('liveErr');loadStream(gel('liveVid'),ch.url,'liveErr');}}
 
@@ -858,6 +926,14 @@ window.playItem=function(id,type){
   const item=list.find(function(c){return c.id===id;});if(!item)return;
   dbg('playItem: '+item.name+' ('+type+')');
   activeItemId=id;addRecent(item,type);
+  document.querySelectorAll('.grid-item.active').forEach(function(el){el.classList.remove('active');});
+  var activeEl=document.querySelector('.grid-item[onclick*="\''+id+'\'"]');
+  if(activeEl){
+    activeEl.classList.add('active');
+    if(!window._userScrolling){
+      activeEl.scrollIntoView({block:'center',behavior:'smooth'});
+    }
+  }
   if(type==='movie'){
     gel('mvPlayer').classList.add('show');gel('mvTitle').textContent=item.name;
     gel('mvFavBtn').textContent=S.favorites.has(id)?'★':'☆';
@@ -1023,19 +1099,75 @@ async function deleteAcct(id){
 
 async function reloadAcct(id){
   const a=S.accounts.find(function(x){return x.id===id;});if(!a)return;
+  if(a.type==='stalker'){
+    dbg('Reloading Stalker account: '+a.name,'ok');
+    try{
+      const hd={
+        'User-Agent':'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
+        'X-User-Agent':'Model: MAG250; Link: Ethernet',
+        'Cookie':'PHPSESSID=null; sn=000000000000; mac='+a.mac+'; stb_lang=en; timezone=America/New_York'
+      };
+      const hs=await fetchJSON(a.stkBase+'?type=stb&action=handshake&prehash=0&token=&JsHttpRequest=1-xml',hd);
+      const tk=hs&&hs.js&&hs.js.token;
+      if(!tk)throw new Error('No token from portal');
+      hd['Authorization']='Bearer '+tk;
+      const gn=await fetchJSON(a.stkBase+'?type=itv&action=get_genres&JsHttpRequest=1-xml',hd);
+      const gm={};if(gn&&gn.js&&Array.isArray(gn.js))gn.js.forEach(function(g){gm[g.id]=g.title;});
+      let all=[],pg=1,tp=1;
+      do{
+        const cr=await fetchJSON(a.stkBase+'?type=itv&action=get_ordered_list&genre=*&fav=0&sortby=number&p='+pg+'&JsHttpRequest=1-xml',hd);
+        if(cr&&cr.js&&cr.js.data&&Array.isArray(cr.js.data)&&cr.js.data.length>0){
+          cr.js.data.forEach(function(ch){
+            var cmd=ch.cmd||'',su=cmd;
+            if(cmd.startsWith('ffmpeg '))su=cmd.replace('ffmpeg ','');
+            else{var m=cmd.match(/(https?:\/\/[^\s]+)/);if(m)su=m[1];}
+            all.push({id:U(),acctId:a.id,name:ch.name||'?',url:su,cmd:cmd,group:gm[ch.tv_genre_id]||'',logo:ch.logo?(ch.logo.startsWith('http')?ch.logo:a.url+'/'+ch.logo):'',chId:ch.id||''});
+          });
+          const total=parseInt(cr.js.total_items)||0;
+          const perPage=parseInt(cr.js.max_page_items)||14;
+          tp=total>0?Math.ceil(total/perPage):pg;
+        }else break;
+        pg++;
+      }while(pg<=tp&&pg<=100);
+      if(!all.length)throw new Error('No channels found');
+      S.live=S.live.filter(function(c){return c.acctId!==a.id;});
+      S.live=S.live.concat(all);
+      a.liveCount=all.length;
+      await saveAll();renderAccounts();updateBadges();
+      dbg('Stalker reload OK: '+all.length+' channels','ok');
+    }catch(e){
+      dbg('Stalker reload failed: '+e.message,'err');
+      if(e.message!=='No channels found'){
+        alert('Stalker reload failed: '+e.message);
+      }else{
+        dbg('Portal may be rate limiting — wait 30 seconds and try again','warn');
+      }
+    }
+    return;
+  }
   const backup={accounts:S.accounts.slice(),live:S.live.slice(),movies:S.movies.slice(),series:S.series.slice()};
-  S.accounts=S.accounts.filter(function(x){return x.id!==id;});
-  S.live=S.live.filter(function(c){return c.acctId!==id;});
-  S.movies=S.movies.filter(function(c){return c.acctId!==id;});
-  S.series=S.series.filter(function(c){return c.acctId!==id;});
   const newId=U();
   try{
-    if(a.type==='xtream'){await doXtream(newId,a.server,a.user,a.pass,a.name,null);}
-    else{
+    if(a.type==='xtream'){
+      // Remove old only after we have new
+      S.accounts=S.accounts.filter(function(x){return x.id!==id;});
+      S.live=S.live.filter(function(c){return c.acctId!==id;});
+      S.movies=S.movies.filter(function(c){return c.acctId!==id;});
+      S.series=S.series.filter(function(c){return c.acctId!==id;});
+      await doXtream(newId,a.server,a.user,a.pass,a.name,null);
+    }else{
       const url=a.sourceUrl||a.server||a.url;
-      const text=await fetchText(url);const parsed=parseM3U(text);parsed.forEach(function(c){c.acctId=newId;});
+      const text=await fetchText(url);
+      const parsed=parseM3U(text);
+      if(!parsed.length)throw new Error('No channels found in reload');
+      parsed.forEach(function(c){c.acctId=newId;});
       const lv=[],mv=[],sv=[];
       parsed.forEach(function(c){if(/\/movie\//.test(c.url))mv.push(c);else if(/\/series\//.test(c.url))sv.push(c);else lv.push(c);});
+      // Only remove old after new confirmed
+      S.accounts=S.accounts.filter(function(x){return x.id!==id;});
+      S.live=S.live.filter(function(c){return c.acctId!==id;});
+      S.movies=S.movies.filter(function(c){return c.acctId!==id;});
+      S.series=S.series.filter(function(c){return c.acctId!==id;});
       S.live=S.live.concat(lv);S.movies=S.movies.concat(mv);S.series=S.series.concat(sv);
       S.accounts.push({id:newId,type:a.type,name:a.name,server:a.server,url:a.url,sourceUrl:a.sourceUrl,liveCount:lv.length,vodCount:mv.length,seriesCount:sv.length});
     }
@@ -1078,12 +1210,19 @@ async function clearAll(){
 function openModal(id){
   gel(id).classList.add('open');
   setSt('aaSt','');setSt('imSt','');setSt('acSt','');
+  if(id==='mAA'&&!_editingAcctId){
+    gel('xtServer').value='';gel('xtUser').value='';
+    gel('xtPass').value='';gel('xtName').value='';
+    gel('skUrl').value='';gel('skMac').value='';gel('skName').value='';
+    gel('muUrl').value='';gel('muName').value='';
+    switchAcctTab('xt');
+  }
 }
 function closeModal(id){
   gel(id).classList.remove('open');
   if(id==='mAA'){_editingAcctId=null;gel('mAATitle').textContent='Add Account';}
 }
-document.querySelectorAll('.mo').forEach(function(el){el.addEventListener('click',function(e){if(e.target===el){el.classList.remove('open');if(el.id==='mAA'){_editingAcctId=null;gel('mAATitle').textContent='Add Account';}}});});
+document.querySelectorAll('.mo').forEach(function(el){el.addEventListener('click',function(e){if(e.target===el&&document.hasFocus()){el.classList.remove('open');if(el.id==='mAA'){_editingAcctId=null;gel('mAATitle').textContent='Add Account';}}});});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){document.querySelectorAll('.mo.open').forEach(function(el){el.classList.remove('open');});_editingAcctId=null;gel('mAATitle').textContent='Add Account';}});
 function setSt(id,msg,type){const el=gel(id);if(!el)return;el.textContent=msg||'';el.className='st'+(type?' '+type:'');}
 function switchAcctTab(t){
@@ -1146,7 +1285,11 @@ async function connectAcct(){
     if(!url||!mac){setSt('aaSt','Fill all fields.','err');return;}
     const nmac=mac.toUpperCase().replace(/[^A-F0-9]/g,'');
     const fmac=nmac.length===12?nmac.match(/.{2}/g).join(':'):mac;
-    const hd={'X-User-Agent':'Model: MAG250; Link: Ethernet'};
+    const hd={
+      'User-Agent':'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
+      'X-User-Agent':'Model: MAG250; Link: Ethernet',
+      'Cookie':'PHPSESSID=null; sn=000000000000; mac='+fmac+'; stb_lang=en; timezone=America/New_York'
+    };
     try{
       setSt('aaSt','Connecting to portal...','loading');
       const base=url+'/server/load.php';
@@ -1161,17 +1304,20 @@ async function connectAcct(){
       let all=[],pg=1,tp=1;
       do{
         const cr=await fetchJSON(base+'?type=itv&action=get_ordered_list&genre=*&fav=0&sortby=number&p='+pg+'&JsHttpRequest=1-xml',hd);
-        if(cr&&cr.js&&cr.js.data&&Array.isArray(cr.js.data)){
+        if(cr&&cr.js&&cr.js.data&&Array.isArray(cr.js.data)&&cr.js.data.length>0){
           cr.js.data.forEach(function(ch){
             var cmd=ch.cmd||'',su=cmd;
             if(cmd.startsWith('ffmpeg '))su=cmd.replace('ffmpeg ','');
             else{var m=cmd.match(/(https?:\/\/[^\s]+)/);if(m)su=m[1];}
-            all.push({id:U(),acctId:aid,name:ch.name||'?',url:su,group:gm[ch.tv_genre_id]||'',logo:ch.logo?(ch.logo.startsWith('http')?ch.logo:url+'/'+ch.logo):''});
+            all.push({id:U(),acctId:aid,name:ch.name||'?',url:su,cmd:cmd,group:gm[ch.tv_genre_id]||'',logo:ch.logo?(ch.logo.startsWith('http')?ch.logo:url+'/'+ch.logo):'',chId:ch.id||''});
           });
-          tp=Math.ceil((cr.js.total_items||0)/(cr.js.max_page_items||14));
-        }else break;
+          const total=parseInt(cr.js.total_items)||0;
+          const perPage=parseInt(cr.js.max_page_items)||14;
+          tp=total>0?Math.ceil(total/perPage):pg;
+          dbg('Stalker page '+pg+'/'+tp+' loaded '+cr.js.data.length+' channels');
+        }else{dbg('Stalker page '+pg+' empty — stopping','warn');break;}
         pg++;
-      }while(pg<=tp&&pg<=50);
+      }while(pg<=tp&&pg<=100);
       if(!all.length)throw new Error('No channels found');
       all.forEach(function(c){c.acctId=aid;});
       S.live=S.live.concat(all);
@@ -1251,7 +1397,15 @@ async function doXtream(aid,sv,u,p,nm,stEl){
   st('✅ '+nL.length+' live, '+nM.length+' movies, '+nS.length+' shows','ok');
   dbg('doXtream OK: '+nm+': '+nL.length+' live, '+nM.length+' movies, '+nS.length+' series','ok');
   nav('accounts');
-  if(!nM.length||!nS.length){setTimeout(function(){bgFill(aid,sv,u,p);},5000);}
+  if(!nM.length||!nS.length){
+    setTimeout(function(){
+      if(window.requestIdleCallback){
+        requestIdleCallback(function(){bgFill(aid,sv,u,p);},{timeout:30000});
+      }else{
+        setTimeout(function(){bgFill(aid,sv,u,p);},10000);
+      }
+    },5000);
+  }
 }
 
 async function bgFill(aid,sv,u,p){
@@ -1326,6 +1480,13 @@ async function addChannel(){
 }
 
 // ── Player Engine ─────────────────────────────────────────────────────────────
+async function saveLogFile(){
+  const content=dbgLines.join('\n');
+  if(!content){alert('No log to save.');return;}
+  const r=await window.darkflix.saveLog(content);
+  if(r&&r.ok)dbg('Log saved to file','ok');
+  else dbg('Log save cancelled or failed','warn');
+}
 function clrErr(id){const e=gel(id);if(e){e.textContent='';e.classList.remove('show');}}
 function showErr(id,msg){const e=gel(id);if(e){e.textContent=msg;e.classList.add('show');}dbg('Stream error: '+msg,'err');}
 
@@ -1343,10 +1504,11 @@ function loadStream(vid,url,errId){
   dbg('loadStream: '+url.split('?')[0].split('/').slice(-2).join('/'));
   stopAllVideo();
   vid.removeAttribute('src');vid.load();
-  const isDash=url.includes('.mpd'),isHLS=url.includes('.m3u8')||url.includes('type=m3u'),isTS=url.endsWith('.ts');
+  const isDash=url.includes(".mpd"),isHLS=url.includes(".m3u8")||url.includes("type=m3u"),isTS=url.endsWith(".ts");
+  const noExt=!url.split("?")[0].split("/").pop().includes(".");
   if(isDash){dashPlay(vid,url,errId);return;}
   if(isHLS){hlsPlay(vid,url,errId);return;}
-  if(isTS){mpegtsPlay(vid,url,errId);return;}
+  if(isTS||noExt){mpegtsPlay(vid,url,errId,function(){hlsPlay(vid,url,errId,function(){showErr(errId,"Stream unavailable");});});return;}
   vid.src=url;if(S.settings.autoplay)vid.play().catch(function(){});
   vid.onerror=function(){
     vid.onerror=null;dbg('native failed, trying hls.js','warn');
@@ -1364,20 +1526,30 @@ function hlsPlay(vid,url,errId,onFail){
   hls.on(Hls.Events.MANIFEST_PARSED,function(){
     dbg('HLS OK','ok');mediaRec=0;
     if(S.settings.autoplay)vid.play().catch(function(){});
-    function scrollToActive(){
-      var el=document.querySelector('.ch-item.active');
-      var list=gel('chList');
-      if(!el||!list)return;
-      var listRect=list.getBoundingClientRect();
-      var elRect=el.getBoundingClientRect();
-      var topVisible=elRect.top>=listRect.top+20;
-      var botVisible=elRect.bottom<=listRect.bottom-20;
-      if(topVisible&&botVisible)return;
-      var offset=elRect.top-listRect.top-listRect.height/2+elRect.height/2;
-      list.scrollTop=list.scrollTop+offset;
+    if(CV==='live'){
+      var savedScroll=gel('chList').scrollTop;
+      setTimeout(function(){
+        var list=gel('chList');
+        var el=document.querySelector('.ch-item.active');
+        if(!el){list.scrollTop=savedScroll;return;}
+        var listRect=list.getBoundingClientRect();
+        var elRect=el.getBoundingClientRect();
+        var visible=elRect.top>=listRect.top&&elRect.bottom<=listRect.bottom;
+        if(!visible){
+          list.scrollTop=savedScroll;
+          setTimeout(function(){
+            var el2=document.querySelector('.ch-item.active');
+            if(!el2)return;
+            var elRect2=el2.getBoundingClientRect();
+            var listRect2=list.getBoundingClientRect();
+            var still=elRect2.top>=listRect2.top&&elRect2.bottom<=listRect2.bottom;
+            if(!still)list.scrollTop+=elRect2.top-listRect2.top-listRect2.height/2+elRect2.height/2;
+          },400);
+        }else{
+          list.scrollTop=savedScroll;
+        }
+      },600);
     }
-    setTimeout(scrollToActive,500);
-    setTimeout(scrollToActive,1000);
   });
   hls.on(Hls.Events.ERROR,function(e,d){
     if(d.fatal){
@@ -1397,7 +1569,7 @@ function dashPlay(vid,url,errId){
 }
 function mpegtsPlay(vid,url,errId,onFail){
   if(!window.mpegts||!mpegts.isSupported()){if(onFail)onFail();return;}
-  if(window._mpegtsP){try{window._mpegtsP.destroy();}catch(e){}window._mpegtsP=null;}
+  if(window._mpegtsP){try{window._mpegtsP.pause();window._mpegtsP.unload();window._mpegtsP.detachMediaElement();window._mpegtsP.destroy();}catch(e){}window._mpegtsP=null;}
   try{
     const p=mpegts.createPlayer({type:'mpegts',isLive:true,url:url},{enableWorker:true,liveBufferLatencyChasing:false,liveBufferLatencyMaxLatency:6.0,liveBufferLatencyMinRemain:3.0,lazyLoad:false});
     window._mpegtsP=p;p.attachMediaElement(vid);p.load();
