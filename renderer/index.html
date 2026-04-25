@@ -870,7 +870,7 @@ function renderMovies(){
   list=list.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
   renderGrid('mvList',list,'movie');
   buildAZ('mvList','mvAZ',list);
-  if(activeItemId){setTimeout(function(){var el=gel('mvList').querySelector('.grid-item.active');if(el)el.scrollIntoView({block:'center',behavior:'smooth'});},200);}
+  if(activeItemId&&!window._userScrolling){setTimeout(function(){var el=gel('mvList').querySelector('.grid-item.active');if(el&&!window._userScrolling)el.scrollIntoView({block:'center',behavior:'smooth'});},200);}
 }
 window.setMvCat=function(c){mvCat=c;renderMovies();};
 
@@ -886,7 +886,7 @@ function renderSeries(){
   list=list.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
   renderGrid('svList',list,'series');
   buildAZ('svList','svAZ',list);
-  if(activeItemId){setTimeout(function(){var el=gel('svList').querySelector('.grid-item.active');if(el)el.scrollIntoView({block:'center',behavior:'smooth'});},200);}
+  if(activeItemId&&!window._userScrolling){setTimeout(function(){var el=gel('svList').querySelector('.grid-item.active');if(el&&!window._userScrolling)el.scrollIntoView({block:'center',behavior:'smooth'});},200);}
 }
 window.setSvCat=function(c){svCat=c;renderSeries();};
 
@@ -980,8 +980,16 @@ window.playItem=function(id,type){
   var activeEl=document.querySelector('.grid-item[onclick*="\''+id+'\'"]');
   if(activeEl){
     activeEl.classList.add('active');
-    if(!window._userScrolling){
-      activeEl.scrollIntoView({block:'center',behavior:'smooth'});
+    var listEl=activeEl.closest('.grid-scroll');
+    if(listEl){
+      var listRect=listEl.getBoundingClientRect();
+      var elRect=activeEl.getBoundingClientRect();
+      var visible=elRect.top>=listRect.top&&elRect.bottom<=listRect.bottom;
+      if(!visible){
+        listEl.scrollTop+=elRect.top-listRect.top-listEl.clientHeight/2+activeEl.offsetHeight/2;
+      }
+    }else{
+      activeEl.scrollIntoView({block:'nearest',behavior:'smooth'});
     }
   }
   if(type==='movie'){
