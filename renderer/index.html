@@ -1400,11 +1400,17 @@ async function doXtream(aid,sv,u,p,nm,stEl){
   if(!nM.length||!nS.length){
     setTimeout(function(){
       if(window.requestIdleCallback){
-        requestIdleCallback(function(){bgFill(aid,sv,u,p);},{timeout:30000});
+        requestIdleCallback(function(){
+          if(document.hidden||CV!=='live'){
+            bgFill(aid,sv,u,p);
+          }else{
+            setTimeout(function(){bgFill(aid,sv,u,p);},15000);
+          }
+        },{timeout:60000});
       }else{
-        setTimeout(function(){bgFill(aid,sv,u,p);},10000);
+        setTimeout(function(){bgFill(aid,sv,u,p);},15000);
       }
-    },5000);
+    },8000);
   }
 }
 
