@@ -551,7 +551,7 @@ async function loadState(){
   dbg('loadState - Status: Started');
   try{
     const all=await window.darkflix.storeGetAll();
-    if(all.accounts)S.accounts=all.accounts;
+    if(all.accounts)S.accounts=await decryptAccounts(all.accounts);
     if(all.live)S.live=all.live;
     if(all.movies)S.movies=all.movies;
     if(all.series)S.series=all.series;
@@ -587,9 +587,30 @@ async function saveKeyNow(k,v){
   try{await window.darkflix.storeSet(k,v);}
   catch(e){dbg('saveKey error: '+e.message,'err');}
 }
+async function encryptAccounts(accounts){
+  var result=[];
+  for(var i=0;i<accounts.length;i++){
+    var a=Object.assign({},accounts[i]);
+    if(a.pass)a.pass=await window.darkflix.encrypt(a.pass);
+    if(a.mac)a.mac=await window.darkflix.encrypt(a.mac);
+    result.push(a);
+  }
+  return result;
+}
+async function decryptAccounts(accounts){
+  var result=[];
+  for(var i=0;i<accounts.length;i++){
+    var a=Object.assign({},accounts[i]);
+    if(a.pass)a.pass=await window.darkflix.decrypt(a.pass);
+    if(a.mac)a.mac=await window.darkflix.decrypt(a.mac);
+    result.push(a);
+  }
+  return result;
+}
 async function saveAll(){
   // Small critical data — write immediately
-  await saveKeyNow('accounts',S.accounts);
+  var encAccounts=await encryptAccounts(S.accounts);
+  await saveKeyNow('accounts',encAccounts);
   await saveKeyNow('favorites',[...S.favorites]);
   await saveKeyNow('recents',S.recents);
   await saveKeyNow('settings',S.settings);

@@ -45,6 +45,19 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
+const { safeStorage } = require('electron');
+
+ipcMain.handle('crypto:encrypt', (e, text) => {
+  if(!safeStorage.isEncryptionAvailable())return text;
+  try{return safeStorage.encryptString(text).toString('base64');}
+  catch{return text;}
+});
+ipcMain.handle('crypto:decrypt', (e, text) => {
+  if(!safeStorage.isEncryptionAvailable())return text;
+  try{return safeStorage.decryptString(Buffer.from(text,'base64'));}
+  catch{return text;}
+});
+
 ipcMain.handle('store:get', (e, key) => {
   console.log(`[DEBUG][Main] store:get - Status: Started - Payload: ${key}`);
   return _store[key];
