@@ -794,15 +794,35 @@ function playChannel(id){
   gel('playerBox').style.display='';gel('playerPH').style.display='none';
   gel('nowBar').style.display='flex';gel('nowName').textContent=ch.name;
   clrErr('liveErr');
+  var vid=gel('liveVid');
+  if(vid._liveReconnect){vid.removeEventListener('ended',vid._liveReconnect);vid._liveReconnect=null;}
   var acct=S.accounts.find(function(a){return a.id===ch.acctId;});
+  var doPlay=function(url){
+    loadStream(vid,url,'liveErr');
+    vid._liveReconnect=function(){
+      if(activeChId!==ch.id)return;
+      dbg('Stream ended — reconnecting...','warn');
+      gel('nowName').textContent=ch.name+' (reconnecting...)';
+      if(acct&&acct.type==='stalker'){
+        resolveStalkerUrl(ch).then(function(newUrl){
+          gel('nowName').textContent=ch.name;
+          mpegtsPlay(vid,newUrl,'liveErr',function(){loadStream(vid,newUrl,'liveErr');});
+        });
+      }else{
+        gel('nowName').textContent=ch.name;
+        loadStream(vid,url,'liveErr');
+      }
+    };
+    vid.addEventListener('ended',vid._liveReconnect);
+  };
   if(acct&&acct.type==='stalker'){
     gel('nowName').textContent=ch.name+' (resolving...)';
     resolveStalkerUrl(ch).then(function(url){
       gel('nowName').textContent=ch.name;
-      loadStream(gel('liveVid'),url,'liveErr');
+      doPlay(url);
     });
   }else{
-    loadStream(gel('liveVid'),ch.url,'liveErr');
+    doPlay(ch.url);
   }
   renderLive();
 }
