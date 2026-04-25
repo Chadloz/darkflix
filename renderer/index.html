@@ -827,12 +827,15 @@ function playChannel(id){
   var doPlay=function(url){
     loadStream(vid,url,'liveErr');
     var _nextUrl=null;
+    var _prefetching=false;
     if(acct&&acct.type==='stalker'){
       setTimeout(function(){
         if(activeChId!==ch.id)return;
+        if(_prefetching||_nextUrl)return;
+        _prefetching=true;
         dbg('Pre-fetching next Stalker token...','ok');
-        resolveStalkerUrl(ch).then(function(u){_nextUrl=u;});
-      },15000);
+        resolveStalkerUrl(ch).then(function(u){_nextUrl=u;_prefetching=false;});
+      },12000);
     }
     vid._liveReconnect=function(){
       if(activeChId!==ch.id)return;
@@ -844,19 +847,13 @@ function playChannel(id){
           var url2=_nextUrl;_nextUrl=null;
           gel('nowName').textContent=ch.name;
           mpegtsPlay(vid,url2,'liveErr',function(){loadStream(vid,url2,'liveErr');});
-          // Pre-fetch next one immediately
-          setTimeout(function(){
-            if(activeChId!==ch.id)return;
-            resolveStalkerUrl(ch).then(function(u){_nextUrl=u;});
-          },15000);
+          // Reset for next cycle
+          _prefetching=false;
         }else{
           resolveStalkerUrl(ch).then(function(newUrl){
             gel('nowName').textContent=ch.name;
             mpegtsPlay(vid,newUrl,'liveErr',function(){loadStream(vid,newUrl,'liveErr');});
-            setTimeout(function(){
-              if(activeChId!==ch.id)return;
-              resolveStalkerUrl(ch).then(function(u){_nextUrl=u;});
-            },15000);
+            _prefetching=false;
           });
         }
       }else{
