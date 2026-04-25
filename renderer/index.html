@@ -788,6 +788,10 @@ function playChannel(id){
   activeChId=id;addRecent(ch,'live');
   saveKey('lastChannel',id);
   saveKey('lastWatched',null);
+  saveKey('wasPlaying',true);
+  var vid=gel('liveVid');
+  vid.onpause=function(){saveKey('wasPlaying',false);};
+  vid.onplay=function(){saveKey('wasPlaying',true);};
   // Load rows if needed but don't scroll — user stays where they are
   const idx=_liveList.findIndex(function(c){return c.id===id;});
   if(idx>=0&&idx>=_liveShown){
@@ -801,15 +805,39 @@ function playChannel(id){
   var acct=S.accounts.find(function(a){return a.id===ch.acctId;});
   var doPlay=function(url){
     loadStream(vid,url,'liveErr');
+    var _nextUrl=null;
+    if(acct&&acct.type==='stalker'){
+      setTimeout(function(){
+        if(activeChId!==ch.id)return;
+        dbg('Pre-fetching next Stalker token...','ok');
+        resolveStalkerUrl(ch).then(function(u){_nextUrl=u;});
+      },15000);
+    }
     vid._liveReconnect=function(){
       if(activeChId!==ch.id)return;
       dbg('Stream ended — reconnecting...','warn');
       gel('nowName').textContent=ch.name+' (reconnecting...)';
       if(acct&&acct.type==='stalker'){
-        resolveStalkerUrl(ch).then(function(newUrl){
+        if(_nextUrl){
+          dbg('Using pre-fetched token','ok');
+          var url2=_nextUrl;_nextUrl=null;
           gel('nowName').textContent=ch.name;
-          mpegtsPlay(vid,newUrl,'liveErr',function(){loadStream(vid,newUrl,'liveErr');});
-        });
+          mpegtsPlay(vid,url2,'liveErr',function(){loadStream(vid,url2,'liveErr');});
+          // Pre-fetch next one immediately
+          setTimeout(function(){
+            if(activeChId!==ch.id)return;
+            resolveStalkerUrl(ch).then(function(u){_nextUrl=u;});
+          },15000);
+        }else{
+          resolveStalkerUrl(ch).then(function(newUrl){
+            gel('nowName').textContent=ch.name;
+            mpegtsPlay(vid,newUrl,'liveErr',function(){loadStream(vid,newUrl,'liveErr');});
+            setTimeout(function(){
+              if(activeChId!==ch.id)return;
+              resolveStalkerUrl(ch).then(function(u){_nextUrl=u;});
+            },15000);
+          });
+        }
       }else{
         gel('nowName').textContent=ch.name;
         loadStream(vid,url,'liveErr');
@@ -962,12 +990,18 @@ window.playItem=function(id,type){
     clrErr('mvErr');if(item.url)loadStream(gel('mvVid'),item.url,'mvErr');
     gel('vMovies').scrollTop=0;
     saveKey('lastWatched',{id:id,type:'movie'});
+    saveKey('wasPlaying',true);
+    gel('mvVid').onpause=function(){saveKey('wasPlaying',false);};
+    gel('mvVid').onplay=function(){saveKey('wasPlaying',true);};
   }else{
     gel('svPlayer').classList.add('show');gel('svTitle').textContent=item.name;
     gel('svFavBtn').textContent=S.favorites.has(id)?'★':'☆';
     clrErr('svErr');if(item.url)loadStream(gel('svVid'),item.url,'svErr');
     loadEps(item);gel('vSeries').scrollTop=0;
     saveKey('lastWatched',{id:id,type:'series'});
+    saveKey('wasPlaying',true);
+    gel('svVid').onpause=function(){saveKey('wasPlaying',false);};
+    gel('svVid').onplay=function(){saveKey('wasPlaying',true);};
   }
 };
 
@@ -1659,6 +1693,12 @@ if(_chListEl){
   try{
     const lastWatched=await window.darkflix.storeGet('lastWatched');
     const lastId=await window.darkflix.storeGet('lastChannel');
+    const wasPlaying=await window.darkflix.storeGet('wasPlaying');
+    await window.darkflix.storeSet('wasPlaying',false);
+    if(!wasPlaying){
+      dbg('Last session was not playing — skipping restore');
+      nav('home');return;
+    }
     const lastCat=await window.darkflix.storeGet('lastLiveCat');
     if(lastWatched&&lastWatched.type==='movie'){
       const item=S.movies.find(function(m){return m.id===lastWatched.id;});
