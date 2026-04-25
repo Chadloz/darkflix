@@ -588,13 +588,15 @@ async function saveKeyNow(k,v){
   catch(e){dbg('saveKey error: '+e.message,'err');}
 }
 async function saveAll(){
+  // Small critical data — write immediately
   await saveKeyNow('accounts',S.accounts);
-  await saveKeyNow('live',S.live);
-  await saveKeyNow('movies',S.movies);
-  await saveKeyNow('series',S.series);
   await saveKeyNow('favorites',[...S.favorites]);
   await saveKeyNow('recents',S.recents);
   await saveKeyNow('settings',S.settings);
+  // Large arrays — debounce to avoid blocking UI
+  saveKey('live',S.live);
+  saveKey('movies',S.movies);
+  saveKey('series',S.series);
 }
 
 // ── Network ───────────────────────────────────────────────────────────────────
