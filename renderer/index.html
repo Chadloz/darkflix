@@ -23,6 +23,19 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
 .logo-dark{color:#fff;}.logo-flix{color:var(--accent);}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
 .view-label{font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:1px;}
+.free-panel{position:absolute;top:50px;right:16px;background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:480px;overflow-y:auto;width:360px;z-index:100;box-shadow:0 8px 24px #0006;}
+.free-card{display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid var(--border);}
+.free-icon{font-size:22px;width:32px;text-align:center;flex-shrink:0;}
+.free-info{flex:1;min-width:0;}
+.free-name{font-weight:600;font-size:14px;}
+.free-desc{font-size:11px;color:var(--dim);margin-top:2px;}
+.toggle-switch{position:relative;width:44px;height:24px;flex-shrink:0;}
+.toggle-switch input{opacity:0;width:0;height:0;}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:#333;border-radius:24px;transition:.3s;}
+.toggle-slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s;}
+input:checked+.toggle-slider{background:var(--accent);}
+input:checked+.toggle-slider:before{transform:translateX(20px);}
+.btn.ok{background:#2a7a2a;color:#fff;}
 .acct-badge{display:none;padding:3px 10px;border-radius:10px;background:var(--ad);color:var(--accent);font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .overlay{display:none;position:fixed;inset:0;background:#000a;z-index:50;}
 .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:var(--s2);color:var(--text);padding:12px 24px;border-radius:8px;font-size:14px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;max-width:80%;}
@@ -337,7 +350,7 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
   <div class="fav-list" id="favList"></div>
 </div>
 
-<div class="view" id="vAccounts">
+<div class="view" id="vAccounts" style="position:relative;">
   <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
     <div style="display:flex;align-items:center;gap:10px">
       <button class="btn sm" onclick="goBack()">←</button>
@@ -345,11 +358,13 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
       <h2 style="font-size:16px">👤 Accounts</h2>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <button class="btn primary sm" onclick="openModal('mAA')">+ Account</button>
+<button class="btn primary sm" onclick="openModal('mAA')">+ Account</button>
+      <button class="btn sm ok" onclick="toggleFreePanel()">📡 Free Channels</button>
       <button class="btn sm" onclick="openModal('mIM')">Import M3U</button>
       <button class="btn sm" onclick="openModal('mAC')">+ Channel</button>
     </div>
   </div>
+  <div id="freePanel" style="display:none;" class="free-panel"></div>
   <div class="accts-list" id="acctList"></div>
 </div>
 
@@ -1107,6 +1122,95 @@ function addRecent(item,type){
 }
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
+const FREE_SOURCES=[
+  {id:'iptv-org-all',name:'IPTV-Org (All)',desc:'8000+ channels, 100+ countries. Updated daily by bot.',url:'https://iptv-org.github.io/iptv/index.m3u',icon:'📡'},
+  {id:'iptv-org-us',name:'IPTV-Org US Only',desc:'US channels only from iptv-org.',url:'https://iptv-org.github.io/iptv/countries/us.m3u',icon:'🇺🇸'},
+  {id:'iptv-org-news',name:'IPTV-Org News',desc:'News channels worldwide.',url:'https://iptv-org.github.io/iptv/categories/news.m3u',icon:'📰'},
+  {id:'iptv-org-sports',name:'IPTV-Org Sports',desc:'Sports channels worldwide.',url:'https://iptv-org.github.io/iptv/categories/sports.m3u',icon:'⚽'},
+  {id:'iptv-org-movies',name:'IPTV-Org Movies',desc:'Movie channels worldwide.',url:'https://iptv-org.github.io/iptv/categories/movies.m3u',icon:'🎬'},
+  {id:'free-tv',name:'Free-TV Curated',desc:'500+ verified free channels. No adult. HD preferred.',url:'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8',icon:'📺'},
+  {id:'samsung',name:'Samsung TV Plus',desc:'Samsung free US channels.',url:'https://apsattv.com/ssungusa.m3u',icon:'🖥️'},
+  {id:'roku',name:'Roku Channel',desc:'300+ channels US/EU. Most US streams are geo-blocked — VPN required.',url:'https://www.apsattv.com/rok.m3u',icon:'📱'},
+  {id:'vizio',name:'Vizio WatchFree',desc:'Vizio free channels.',url:'https://www.apsattv.com/vizio.m3u',icon:'📻'},
+  {id:'distro',name:'DistroTV',desc:'DistroTV free channels.',url:'https://www.apsattv.com/distro.m3u',icon:'🌎'},
+  {id:'xumo',name:'XUMO',desc:'XUMO free channels.',url:'https://www.apsattv.com/xumo.m3u',icon:'📲'},
+  {id:'redbox',name:'Redbox TV',desc:'Redbox free channels.',url:'https://www.apsattv.com/redbox.m3u',icon:'📦'},
+  {id:'lg',name:'LG Channels',desc:'LG free channels.',url:'https://www.apsattv.com/lg.m3u',icon:'🖥️'},
+  {id:'tubi',name:'Tubi TV',desc:'Tubi free movies and TV.',url:'https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/refs/heads/main/playlists/tubi_all.m3u',icon:'🍿'},
+];
+
+function getFreeAcct(srcId){return S.accounts.find(function(a){return a.freeId===srcId;});}
+
+async function toggleFreeSource(srcId,enable){
+  if(enable){
+    var src=FREE_SOURCES.find(function(s){return s.id===srcId;});
+    if(!src)return;
+    toast('Loading '+src.name+'...','ok');
+    try{
+      var text=await fetchText(src.url);
+      var parsed=parseM3U(text);
+      if(!parsed.length)throw new Error('No channels found');
+      var aid=U();
+      parsed.forEach(function(c){c.acctId=aid;});
+      var lv=[],mv=[],sv=[];
+      parsed.forEach(function(c){if(/\/movie\//.test(c.url))mv.push(c);else if(/\/series\//.test(c.url))sv.push(c);else lv.push(c);});
+      S.live=S.live.concat(lv);S.movies=S.movies.concat(mv);S.series=S.series.concat(sv);
+      S.accounts.push({id:aid,freeId:src.id,type:'m3u',name:src.name,sourceUrl:src.url,liveCount:lv.length,vodCount:mv.length,seriesCount:sv.length});
+      await saveAll();renderAccounts();updateBadges();
+      toast(src.name+' added: '+lv.length+' channels','ok');
+    }catch(e){
+      toast('Failed: '+e.message,'err');
+      var cb=document.getElementById('free-toggle-'+srcId);if(cb)cb.checked=false;
+    }
+  }else{
+    var acct=getFreeAcct(srcId);
+    if(!acct)return;
+    S.accounts=S.accounts.filter(function(a){return a.id!==acct.id;});
+    S.live=S.live.filter(function(c){return c.acctId!==acct.id;});
+    S.movies=S.movies.filter(function(c){return c.acctId!==acct.id;});
+    S.series=S.series.filter(function(c){return c.acctId!==acct.id;});
+    await saveAll();renderAccounts();updateBadges();
+    toast(acct.name+' removed','ok');
+  }
+  renderFreePanel();
+}
+
+function renderFreePanel(){
+  var panel=document.getElementById('freePanel');if(!panel)return;
+  panel.innerHTML='<div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;"><span style="font-size:12px;color:var(--dim);">Free channel packs — click Add to load channels.</span><button class="btn sm" onclick="closeFreePanel()" style="padding:2px 8px;font-size:12px;">✕</button></div>'+
+  FREE_SOURCES.map(function(src,i){
+    var isAdded=!!getFreeAcct(src.id);
+    return '<div class="free-card">'+
+      '<div class="free-info">'+
+        '<div class="free-name">'+src.icon+' '+src.name+'</div>'+
+        '<div class="free-desc">'+src.desc+'</div>'+
+      '</div>'+
+      (isAdded
+        ? '<button class="btn sm" style="background:#c0392b;color:#fff;white-space:nowrap" onclick="removeFreeByIdx('+i+')">Remove</button>'
+        : '<button class="btn sm ok" style="white-space:nowrap" onclick="addFreeByIdx('+i+')">Add</button>')+
+    '</div>';
+  }).join('');
+}
+
+function addFreeByIdx(idx){
+  var src=FREE_SOURCES[idx];if(!src)return;
+  toggleFreeSource(src.id,true);
+}
+function removeFreeByIdx(idx){
+  var src=FREE_SOURCES[idx];if(!src)return;
+  toggleFreeSource(src.id,false);
+}
+function closeFreePanel(){
+  var panel=document.getElementById('freePanel');
+  if(panel)panel.style.display='none';
+}
+function toggleFreePanel(){
+  var panel=document.getElementById('freePanel');if(!panel)return;
+  var isOpen=panel.style.display!=='none';
+  panel.style.display=isOpen?'none':'block';
+  if(!isOpen)renderFreePanel();
+}
+
 function renderAccounts(){
   const el=gel('acctList');
   if(!S.accounts.length){el.innerHTML='<div class="empty">No accounts yet.<br>Click + Account to add your IPTV credentials.</div>';return;}
@@ -1315,6 +1419,13 @@ function closeModal(id){
   gel(id).classList.remove('open');
   if(id==='mAA'){_editingAcctId=null;gel('mAATitle').textContent='Add Account';}
 }
+document.addEventListener('click',function(e){
+  var panel=document.getElementById('freePanel');
+  var btn=document.querySelector('[onclick="toggleFreePanel()"]');
+  if(panel&&panel.style.display!=='none'&&!panel.contains(e.target)&&e.target!==btn&&(!btn||!btn.contains(e.target))){
+    panel.style.display='none';
+  }
+});
 document.querySelectorAll('.mo').forEach(function(el){el.addEventListener('click',function(e){if(e.target===el&&document.hasFocus()){el.classList.remove('open');if(el.id==='mAA'){_editingAcctId=null;gel('mAATitle').textContent='Add Account';}}});});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){document.querySelectorAll('.mo.open').forEach(function(el){el.classList.remove('open');});_editingAcctId=null;gel('mAATitle').textContent='Add Account';}});
 function setSt(id,msg,type){const el=gel(id);if(!el)return;el.textContent=msg||'';el.className='st'+(type?' '+type:'');}
