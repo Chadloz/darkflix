@@ -674,7 +674,7 @@ function nav(v,isBack){
   var goingToVideo=(v==='live'||v==='movies'||v==='series');
   var av=getActiveVid();
   var sourceView=CV;
-  if(leavingVideo&&!goingToVideo&&av){
+  if(leavingVideo&&av&&(!goingToVideo||(goingToVideo&&v!==CV))){
     if(document.pictureInPictureEnabled&&!document.pictureInPictureElement){
       av.requestPictureInPicture().then(function(){
         _pipSource={view:sourceView,vidId:av.id};
@@ -683,8 +683,13 @@ function nav(v,isBack){
     }
   }
   if(goingToVideo&&document.pictureInPictureElement){
-    document.exitPictureInPicture().catch(function(){});
-    _pipSource=null;
+    // Only exit PiP if returning to the same video view
+    if(_pipSource&&_pipSource.view===v){
+      document.exitPictureInPicture().catch(function(){});
+      _pipSource=null;
+    }else if(!_pipSource){
+      document.exitPictureInPicture().catch(function(){});
+    }
   }
   CV=v;
   document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
@@ -823,6 +828,7 @@ function playChannel(id){
   clrErr('liveErr');
   var vid=gel('liveVid');
   if(vid._liveReconnect){vid.removeEventListener('ended',vid._liveReconnect);vid._liveReconnect=null;}
+  if(document.pictureInPictureElement){_pipSource=null;document.exitPictureInPicture().catch(function(){});}
   var acct=S.accounts.find(function(a){return a.id===ch.acctId;});
   var doPlay=function(url){
     loadStream(vid,url,'liveErr');
@@ -1714,7 +1720,20 @@ if(_chListEl){
   dbg('Darkflix ready','ok');
   document.addEventListener('leavepictureinpicture',function(){
     dbg('PiP closed','ok');
-    if(_pipSource){var src=_pipSource;_pipSource=null;nav(src.view);}
+    if(_pipSource){
+      var src=_pipSource;
+      setTimeout(function(){
+        var vid=gel(src.vidId);
+        if(vid&&!vid.paused){
+          // Video still playing — user hit expand, return to source
+          if(document.hasFocus()){_pipSource=null;nav(src.view);}
+          else{_pipSource=null;}
+        }else{
+          // Video paused/stopped — user hit X, do nothing
+          _pipSource=null;
+        }
+      },100);
+    }
   });
   try{
     const lastWatched=await window.darkflix.storeGet('lastWatched');
