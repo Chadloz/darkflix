@@ -34,9 +34,12 @@ PC path: C:\Users\Chada\darkflix
 - Stalker token pre-fetch
 - Toast notifications, debug log, export/import backup
 
-## Remaining
-- Stalkerhek integration (complex, save for later, consider GitHub issue)
-- EPG (big feature, deferred)
+## Next Session Priorities
+1. Stalkerhek integration (open GitHub issue first to map the approach, then build)
+2. Code cleanup pass -- went from zero to a lot fast, needs a tidy before adding more
+
+## Scrapped
+- EPG -- removed from roadmap entirely
 
 ## Key Info
 - Chad: veteran, cannabis advocate, Las Cruces NM, sardonic humor
