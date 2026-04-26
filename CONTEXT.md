@@ -51,3 +51,6 @@ PC path: C:\Users\Chada\darkflix
 
 ## Research First Rule
 Before ANY fix, feature, or integration: search the web first. Electron docs, GitHub issues, Stack Overflow, existing libraries. Most of what we're building has been done before -- find it, adapt it, don't reinvent it. Only write custom code when nothing usable exists.
+
+## Known Bugs (fix next session)
+- **PiP expand bug**: When exiting PiP back to normal view, the app navigates to the home page instead of returning to the original page/view where the content was playing. Should restore the user's position (series page, movie detail, channel list, etc.) on expand.
