@@ -25,6 +25,10 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
 .view-label{font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:1px;}
 .acct-badge{display:none;padding:3px 10px;border-radius:10px;background:var(--ad);color:var(--accent);font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .overlay{display:none;position:fixed;inset:0;background:#000a;z-index:50;}
+.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:var(--s2);color:var(--text);padding:12px 24px;border-radius:8px;font-size:14px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;max-width:80%;}
+.toast.show{opacity:1;}
+.toast.err{border-left:3px solid #e53;}
+.toast.ok{border-left:3px solid #3a3;}
 .overlay.open{display:block;}
 .drawer{position:fixed;top:38px;left:-260px;width:260px;height:100%;background:var(--s1);border-right:1px solid var(--border);z-index:51;transition:left .2s;display:flex;flex-direction:column;-webkit-app-region:no-drag;}
 .drawer.open{left:0;}
@@ -179,6 +183,7 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
 </div>
 
 <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="toast" id="toast"></div>
 <div class="drawer" id="drawer">
   <div class="drawer-head">
     <div style="font-size:20px;font-weight:800;flex:1"><span class="logo-dark">Dark</span><span class="logo-flix">flix</span></div>
@@ -369,7 +374,7 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
         <div style="display:flex;gap:6px">
           <button class="btn sm" onclick="document.getElementById('dbgBox').style.display=document.getElementById('dbgBox').style.display==='none'?'block':'none'">Toggle</button>
           <button class="btn sm" onclick="dbgLines=[];document.getElementById('dbgLog').textContent=''">Clear</button>
-          <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('dbgLog').textContent).then(function(){alert('Copied!');})">Copy</button>
+          <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('dbgLog').textContent).then(function(){toast('Copied!','ok');})">Copy</button>
           <button class="btn sm" onclick="saveLogFile()">Save</button>
         </div>
       </div>
@@ -1226,7 +1231,7 @@ async function reloadAcct(id){
     }catch(e){
       dbg('Stalker reload failed: '+e.message,'err');
       if(e.message!=='No channels found'){
-        alert('Stalker reload failed: '+e.message);
+        toast('Stalker reload failed: '+e.message,'err');
       }else{
         dbg('Portal may be rate limiting — wait 30 seconds and try again','warn');
       }
@@ -1262,7 +1267,7 @@ async function reloadAcct(id){
     await saveAll();renderAccounts();updateBadges();dbg('reloadAcct OK','ok');
   }catch(e){
     S.accounts=backup.accounts;S.live=backup.live;S.movies=backup.movies;S.series=backup.series;
-    renderAccounts();alert('Reload failed: '+e.message);
+    renderAccounts();toast('Reload failed: '+e.message,'err');
   }
 }
 
@@ -1285,8 +1290,8 @@ async function importData(file){
     if(d.live)S.live=d.live;if(d.movies)S.movies=d.movies;if(d.series)S.series=d.series;
     if(d.accounts)S.accounts=d.accounts;if(d.recents)S.recents=d.recents;
     if(d.favorites)S.favorites=new Set(d.favorites);if(d.settings)S.settings=Object.assign({},S.settings,d.settings);
-    await saveAll();updateBadges();renderSettings();alert('Backup restored!');nav('home');
-  }catch(e){alert('Invalid backup file: '+e.message);}
+    await saveAll();updateBadges();renderSettings();toast('Backup restored!','ok');nav('home');
+  }catch(e){toast('Invalid backup file: '+e.message,'err');}
 }
 async function clearAll(){
   if(!confirm('Clear ALL data?'))return;
@@ -1576,10 +1581,19 @@ async function addChannel(){
 // ── Player Engine ─────────────────────────────────────────────────────────────
 async function saveLogFile(){
   const content=dbgLines.join('\n');
-  if(!content){alert('No log to save.');return;}
+  if(!content){toast('No log to save.','err');return;}
   const r=await window.darkflix.saveLog(content);
   if(r&&r.ok)dbg('Log saved to file','ok');
   else dbg('Log save cancelled or failed','warn');
+}
+var _toastTimer=null;
+function toast(msg,type){
+  var el=gel('toast');
+  el.textContent=msg;
+  el.className='toast'+(type?' '+type:'');
+  clearTimeout(_toastTimer);
+  requestAnimationFrame(function(){el.classList.add('show');});
+  _toastTimer=setTimeout(function(){el.classList.remove('show');},3000);
 }
 function clrErr(id){const e=gel(id);if(e){e.textContent='';e.classList.remove('show');}}
 function showErr(id,msg){const e=gel(id);if(e){e.textContent=msg;e.classList.add('show');}dbg('Stream error: '+msg,'err');}
