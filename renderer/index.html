@@ -267,7 +267,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
     </div>
     <div id="nowBar" style="display:none" class="now-bar">
       <div class="live-dot"></div>
-      <span class="now-name" id="nowName">—</span>
+      <span class="now-name" id="nowName">—</span><span id="nowAcct" style="font-size:11px;color:var(--dim);flex-shrink:0;margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px"></span>
       <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
         <button class="ctrl-btn" onclick="vidPP()" id="ppBtn">⏸</button>
         <button class="ctrl-btn" onclick="vidMute()" id="muteBtn">🔊</button>
@@ -765,7 +765,7 @@ function mkChRow(c,i){
     +(S.settings.chNums?'<div class="ch-num">'+(i+1)+'</div>':'')
     +'<div class="ch-logo">'+(c.logo?'<img src="'+E(c.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
     +'<div class="ch-info"><div class="ch-name">'+E(c.name)+'</div><div class="ch-group">'+E(c.group||'')+(S.accounts.length>1?' <span style="color:var(--accent);font-size:10px;font-weight:600">'+E((S.accounts.find(function(a){return a.id===c.acctId;})||{name:''}).name)+'</span>':'')+'</div></div>'
-    +(isA?'<span class="ch-live">LIVE</span>':'')
+    +(isA?'<span class="ch-live" style="background:var(--accent);color:#000;font-size:9px;padding:2px 6px;border-radius:4px;font-weight:700;font-family:monospace">👁 Watching</span>':'')
     +'<div class="fav-btn '+(isFav?'on':'')+'" onclick="event.stopPropagation();tFav(\''+c.id+'\')">'+(isFav?'★':'☆')+'</div>'
     +'</div>';
 }
@@ -837,7 +837,7 @@ function playChannel(id){
   saveKey('wasPlaying',true);
   var vid=gel('liveVid');
   vid.onpause=function(){saveKey('wasPlaying',false);};
-  vid.onplay=function(){saveKey('wasPlaying',true);};
+  vid.onplay=function(){clearTimeout(_wpTimer);_wpTimer=setTimeout(function(){saveKey('wasPlaying',true);},2000);};
   // Load rows if needed but don't scroll — user stays where they are
   const idx=_liveList.findIndex(function(c){return c.id===id;});
   if(idx>=0&&idx>=_liveShown){
@@ -845,6 +845,8 @@ function playChannel(id){
   }
   gel('playerBox').style.display='';gel('playerPH').style.display='none';
   gel('nowBar').style.display='flex';gel('nowName').textContent=ch.name;
+  var _na=S.accounts.find(function(a){return a.id===ch.acctId;});
+  var _naEl=gel('nowAcct');if(_naEl)_naEl.textContent=_na?'• '+_na.name:'';
   clrErr('liveErr');
   var vid=gel('liveVid');
   if(vid._liveReconnect){vid.removeEventListener('ended',vid._liveReconnect);vid._liveReconnect=null;}
@@ -1044,7 +1046,7 @@ window.playItem=function(id,type){
     saveKey('lastWatched',{id:id,type:'movie'});
     saveKey('wasPlaying',true);
     gel('mvVid').onpause=function(){saveKey('wasPlaying',false);};
-    gel('mvVid').onplay=function(){saveKey('wasPlaying',true);};
+    gel('mvVid').onplay=function(){clearTimeout(_wpTimer);_wpTimer=setTimeout(function(){saveKey('wasPlaying',true);},2000);};
   }else{
     gel('svPlayer').classList.add('show');gel('svTitle').textContent=item.name;
     gel('svFavBtn').textContent=S.favorites.has(id)?'★':'☆';
@@ -1053,7 +1055,7 @@ window.playItem=function(id,type){
     saveKey('lastWatched',{id:id,type:'series'});
     saveKey('wasPlaying',true);
     gel('svVid').onpause=function(){saveKey('wasPlaying',false);};
-    gel('svVid').onplay=function(){saveKey('wasPlaying',true);};
+    gel('svVid').onplay=function(){clearTimeout(_wpTimer);_wpTimer=setTimeout(function(){saveKey('wasPlaying',true);},2000);};
   }
 };
 
