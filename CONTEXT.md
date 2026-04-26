@@ -48,3 +48,6 @@ PC path: C:\Users\Chada\darkflix
 - Direct peer-level tone, no fluff
 - When fixing code: search web first for known solutions, then build custom fix
 - Python scripts are the preferred way to make surgical edits to index.html
+
+## Research First Rule
+Before ANY fix, feature, or integration: search the web first. Electron docs, GitHub issues, Stack Overflow, existing libraries. Most of what we're building has been done before -- find it, adapt it, don't reinvent it. Only write custom code when nothing usable exists.
