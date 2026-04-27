@@ -82,3 +82,11 @@ Before ANY fix, feature, or integration: search the web first. Electron docs, Gi
 
 ## Stalkerhek - REMOVED FROM ROADMAP
 Not needed. Stalker accounts working fine after previous fixes. Stalkerhek solves multi-device auth conflicts and stream reliability issues that don't exist in this setup.
+
+## Completed This Session
+- PiP nav bug fixed
+- _wpTimer global scope fix
+- Home page movie/series click nav fixed
+- Light refactor: globals consolidated, var->let, section comments
+- Stalkerhek removed from roadmap
+- MKV audio confirmed write-off
