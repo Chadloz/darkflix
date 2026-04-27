@@ -79,3 +79,6 @@ Before ANY fix, feature, or integration: search the web first. Electron docs, Gi
 1. Bug fixes (PiP nav, audio codec, free channels not saving)
 2. Stalkerhek integration (GitHub issue first, then build)
 3. Refactor / code cleanup pass
+
+## Stalkerhek - REMOVED FROM ROADMAP
+Not needed. Stalker accounts working fine after previous fixes. Stalkerhek solves multi-device auth conflicts and stream reliability issues that don't exist in this setup.
