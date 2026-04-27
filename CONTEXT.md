@@ -74,3 +74,8 @@ Before ANY fix, feature, or integration: search the web first. Electron docs, Gi
 
 ## Code Quality
 - Refactor pass scheduled -- codebase grew fast, needs cleanup for maintainability and future contributors
+
+## Tomorrow's Order of Operations
+1. Bug fixes (PiP nav, audio codec, free channels not saving)
+2. Stalkerhek integration (GitHub issue first, then build)
+3. Refactor / code cleanup pass
