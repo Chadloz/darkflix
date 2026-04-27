@@ -54,3 +54,23 @@ Before ANY fix, feature, or integration: search the web first. Electron docs, Gi
 
 ## Known Bugs (fix next session)
 - **PiP expand bug**: When exiting PiP back to normal view, the app navigates to the home page instead of returning to the original page/view where the content was playing. Should restore the user's position (series page, movie detail, channel list, etc.) on expand.
+
+## Known Bugs (fix next session)
+
+### PiP - Expand / Source Nav Bug
+- Navigating back to the source view while in PiP (e.g. go to Movies while watching a movie in PiP) kills PiP and dumps to normal view instead of just navigating the panel
+- Should: let user browse the source section freely while PiP keeps playing, only exit PiP if they explicitly hit Expand or Exit
+- Key flags involved: _pipReturnInfo, _pipExpanding, _stoppingFromRemote, _docPipVidInfo
+
+### Audio Missing on Some Content
+- Some movies and shows play with no audio
+- Likely source-side codec issue (AC3/EAC3 not supported in Chromium without passthrough)
+- Investigate: check if pattern is format-specific (ts vs mp4), add audio track detection/switching
+- Low priority, may not be fixable on our end
+
+### Free Channels - Accounts Not Saving
+- Free channel panel accounts may not be persisting correctly
+- Needs investigation and fix
+
+## Code Quality
+- Refactor pass scheduled -- codebase grew fast, needs cleanup for maintainability and future contributors
