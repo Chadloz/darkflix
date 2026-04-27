@@ -689,9 +689,9 @@ function getActiveVid(){
   for(var i=0;i<vids.length;i++){var v=gel(vids[i]);if(v&&v.src&&v.readyState>=1)return v;}
   return null;
 }
-var _pipSource=null;
-var _pipExpanding=false;
-var _wpTimer=null;
+let _pipSource=null;
+let _pipExpanding=false;
+let _wpTimer=null;
 function nav(v,isBack){
   dbg('nav: '+CV+' → '+v);
   if(!isBack){_navHistory.push(v);if(_navHistory.length>20)_navHistory.shift();}
@@ -1698,7 +1698,7 @@ async function saveLogFile(){
   if(r&&r.ok)dbg('Log saved to file','ok');
   else dbg('Log save cancelled or failed','warn');
 }
-var _toastTimer=null;
+let _toastTimer=null;
 function toast(msg,type){
   var el=gel('toast');
   el.textContent=msg;
@@ -1825,7 +1825,7 @@ if(dz){
 });
 
 // Live TV infinite scroll
-var _chListEl=gel('chList');
+let _chListEl=gel('chList');
 if(_chListEl){
   _chListEl.addEventListener('scroll',function(){
     if(_liveShown>=_liveList.length)return;
