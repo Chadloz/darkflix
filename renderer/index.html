@@ -688,6 +688,7 @@ function getActiveVid(){
 }
 var _pipSource=null;
 var _pipExpanding=false;
+var _wpTimer=null;
 function nav(v,isBack){
   dbg('nav: '+CV+' → '+v);
   if(!isBack){_navHistory.push(v);if(_navHistory.length>20)_navHistory.shift();}
@@ -1011,6 +1012,8 @@ function renderGrid(listId,list,type){
 
 window.playItem=function(id,type){
   if(type==='live'){nav('live');setTimeout(function(){playChannel(id);},50);return;}
+  if(type==='movie'&&CV!=='movies'){nav('movies');setTimeout(function(){window.playItem(id,type);},50);return;}
+  if(type==='series'&&CV!=='series'){nav('series');setTimeout(function(){window.playItem(id,type);},50);return;}
   const list=type==='movie'?S.movies:S.series;
   const item=list.find(function(c){return c.id===id;});if(!item)return;
   dbg('playItem: '+item.name+' ('+type+')');
