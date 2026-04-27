@@ -515,11 +515,18 @@ function dbg(msg,type='info'){
   console.log('[DEBUG][Renderer]',msg);
 }
 
+// ── App State ─────────────────────────────────────────────────────────────────
 let S={accounts:[],live:[],movies:[],series:[],favorites:new Set(),recents:[],settings:{autoplay:true,chNums:true}};
 let CV='home',liveCat='All',mvCat='All',svCat='All',acctTab='xt';
 let activeChId=null,activeItemId=null,hls=null;
+let _editingAcctId=null;
+let _navHistory=[];
+let _mvList=[];
+let _svList=[];
+
+// ── Scroll Tracking ───────────────────────────────────────────────────────────
 window._userScrolling=false;
-var _scrollTimer=null;
+let _scrollTimer=null;
 ['mvList','svList'].forEach(function(id){
   setTimeout(function(){
     var el=gel(id);
@@ -530,10 +537,6 @@ var _scrollTimer=null;
     });
   },2000);
 });
-let _editingAcctId=null;
-let _navHistory=[];
-let _mvList=[];
-let _svList=[];
 function goBack(){
   if(_navHistory.length>1){_navHistory.pop();nav(_navHistory[_navHistory.length-1],true);}
   else nav('home',true);
