@@ -687,6 +687,7 @@ function getActiveVid(){
   return null;
 }
 var _pipSource=null;
+var _pipExpanding=false;
 function nav(v,isBack){
   dbg('nav: '+CV+' → '+v);
   if(!isBack){_navHistory.push(v);if(_navHistory.length>20)_navHistory.shift();}
@@ -694,7 +695,7 @@ function nav(v,isBack){
   var goingToVideo=(v==='live'||v==='movies'||v==='series');
   var av=getActiveVid();
   var sourceView=CV;
-  if(leavingVideo&&av&&(!goingToVideo||(goingToVideo&&v!==CV))){
+  if(leavingVideo&&av&&!_pipExpanding&&(!goingToVideo||(goingToVideo&&v!==CV))){
     if(document.pictureInPictureEnabled&&!document.pictureInPictureElement){
       av.requestPictureInPicture().then(function(){
         _pipSource={view:sourceView,vidId:av.id};
@@ -702,15 +703,7 @@ function nav(v,isBack){
       }).catch(function(e){dbg('PiP failed: '+e.message,'warn');});
     }
   }
-  if(goingToVideo&&document.pictureInPictureElement){
-    // Only exit PiP if returning to the same video view
-    if(_pipSource&&_pipSource.view===v){
-      document.exitPictureInPicture().catch(function(){});
-      _pipSource=null;
-    }else if(!_pipSource){
-      document.exitPictureInPicture().catch(function(){});
-    }
-  }
+
   CV=v;
   document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===v));
@@ -1853,7 +1846,7 @@ if(_chListEl){
         var vid=gel(src.vidId);
         if(vid&&!vid.paused){
           // Video still playing — user hit expand, return to source
-          if(document.hasFocus()){_pipSource=null;nav(src.view);}
+          if(document.hasFocus()){_pipSource=null;_pipExpanding=true;nav(src.view);setTimeout(function(){_pipExpanding=false;},500);}
           else{_pipSource=null;}
         }else{
           // Video paused/stopped — user hit X, do nothing
