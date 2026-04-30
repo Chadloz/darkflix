@@ -1108,19 +1108,35 @@ window.playItem=function(id,type){
     gel('mvFavBtn').textContent=S.favorites.has(id)?'★':'☆';
     clrErr('mvErr');if(item.url)loadStream(gel('mvVid'),item.url,'mvErr');
     gel('vMovies').scrollTop=0;
-    saveKey('lastWatched',{id:id,type:'movie'});
+    saveKey('lastWatched',{id:id,type:'movie',position:0});
     saveKey('wasPlaying',true);
-    gel('mvVid').onpause=function(){saveKey('wasPlaying',false);};
+    gel('mvVid').onpause=function(){
+      saveKey('wasPlaying',false);
+      if(this.currentTime>5)saveKey('lastWatched',{id:id,type:'movie',position:this.currentTime});
+    };
     gel('mvVid').onplay=function(){clearTimeout(_wpTimer);_wpTimer=setTimeout(function(){saveKey('wasPlaying',true);},2000);};
+    if(window._mvPosTimer)clearInterval(window._mvPosTimer);
+    window._mvPosTimer=setInterval(function(){
+      var v=gel('mvVid');
+      if(v&&!v.paused&&v.currentTime>5)saveKey('lastWatched',{id:id,type:'movie',position:v.currentTime});
+    },10000);
   }else{
     gel('svPlayer').classList.add('show');gel('svTitle').textContent=item.name;
     gel('svFavBtn').textContent=S.favorites.has(id)?'★':'☆';
     clrErr('svErr');if(item.url)loadStream(gel('svVid'),item.url,'svErr');
     loadEps(item);gel('vSeries').scrollTop=0;
-    saveKey('lastWatched',{id:id,type:'series'});
+    saveKey('lastWatched',{id:id,type:'series',position:0});
     saveKey('wasPlaying',true);
-    gel('svVid').onpause=function(){saveKey('wasPlaying',false);};
+    gel('svVid').onpause=function(){
+      saveKey('wasPlaying',false);
+      if(this.currentTime>5)saveKey('lastWatched',{id:id,type:'series',position:this.currentTime});
+    };
     gel('svVid').onplay=function(){clearTimeout(_wpTimer);_wpTimer=setTimeout(function(){saveKey('wasPlaying',true);},2000);};
+    if(window._svPosTimer)clearInterval(window._svPosTimer);
+    window._svPosTimer=setInterval(function(){
+      var v=gel('svVid');
+      if(v&&!v.paused&&v.currentTime>5)saveKey('lastWatched',{id:id,type:'series',position:v.currentTime});
+    },10000);
   }
 };
 
@@ -1941,16 +1957,32 @@ if(_chListEl){
     if(lastWatched&&lastWatched.type==='movie'){
       const item=S.movies.find(function(m){return m.id===lastWatched.id;});
       if(item){
-        dbg('Restoring last movie: '+item.name);
+        dbg('Restoring last movie: '+item.name+(lastWatched.position?' at '+Math.floor(lastWatched.position)+'s':''));
         nav('movies');
-        setTimeout(function(){window.playItem(item.id,'movie');},300);
+        setTimeout(function(){
+          window.playItem(item.id,'movie');
+          if(lastWatched.position>5){
+            setTimeout(function(){
+              var v=gel('mvVid');
+              if(v)v.currentTime=lastWatched.position;
+            },1500);
+          }
+        },300);
       }
     }else if(lastWatched&&lastWatched.type==='series'){
       const item=S.series.find(function(m){return m.id===lastWatched.id;});
       if(item){
-        dbg('Restoring last series: '+item.name);
+        dbg('Restoring last series: '+item.name+(lastWatched.position?' at '+Math.floor(lastWatched.position)+'s':''));
         nav('series');
-        setTimeout(function(){window.playItem(item.id,'series');},300);
+        setTimeout(function(){
+          window.playItem(item.id,'series');
+          if(lastWatched.position>5){
+            setTimeout(function(){
+              var v=gel('svVid');
+              if(v)v.currentTime=lastWatched.position;
+            },1500);
+          }
+        },300);
       }
     }else{
       const ch=lastId?S.live.find(function(c){return c.id===lastId;}):null;
