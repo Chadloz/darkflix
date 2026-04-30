@@ -274,9 +274,11 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
         <input type="range" id="volRange" min="0" max="100" value="100" style="width:60px;accent-color:var(--accent)" oninput="vidVol(this.value)">
         <button class="ctrl-btn" onclick="vidFS()">⛶</button>
         <button class="ctrl-btn" onclick="retryLive()">↻</button>
+        <button class="ctrl-btn" onclick="openCastPicker()" id="castBtn" title="Cast to device">📡</button>
       </div>
     </div>
     <div class="err-bar" id="liveErr"></div>
+
     <div class="search-bar">
       <button class="btn sm" onclick="goBack()">←</button>
       <button class="btn sm" onclick="nav('home')">🏠</button>
@@ -295,7 +297,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <button class="btn sm" onclick="closeInline('mv')">✕ Close</button>
       <span class="inline-title" id="mvTitle">—</span>
       <button class="btn sm" id="mvFavBtn" onclick="toggleFavInline('mv')">☆</button>
-      <button class="btn sm" onclick="fsInline('mvVid')">⛶</button>
+      <button class="btn sm" onclick="fsInline('mvVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button>
     </div>
     <div class="err-bar" id="mvErr"></div>
   </div>
@@ -321,7 +323,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <button class="btn sm" onclick="closeInline('sv')">✕ Close</button>
       <span class="inline-title" id="svTitle">—</span>
       <button class="btn sm" id="svFavBtn" onclick="toggleFavInline('sv')">☆</button>
-      <button class="btn sm" onclick="fsInline('svVid')">⛶</button>
+      <button class="btn sm" onclick="fsInline('svVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button>
     </div>
     <div class="err-bar" id="svErr"></div>
     <div id="svEps" style="padding:8px 12px"></div>
@@ -540,6 +542,70 @@ let _scrollTimer=null;
 function goBack(){
   if(_navHistory.length>1){_navHistory.pop();nav(_navHistory[_navHistory.length-1],true);}
   else nav('home',true);
+}
+
+
+// ── Cast ──────────────────────────────────────────────────────────────────────
+let _activeStreamUrl=null;
+function getCurrentStreamUrl(){
+  return _activeStreamUrl||null;
+}
+function getCurrentContentType(){
+  var url=_activeStreamUrl||'';
+  if(url.endsWith('.mp4'))return 'video/mp4';
+  if(url.endsWith('.mkv'))return 'video/mp4';
+  if(url.endsWith('.ts')||url.match(/\/\d+\.ts/))return 'video/mp2t';
+  if(url.endsWith('.m3u8')||url.includes('m3u8'))return 'application/x-mpegURL';
+  // Raw IPTV streams with no extension -- try mp2t
+  if(url.match(/\/\d+$/))return 'video/mp2t';
+  return 'application/x-mpegURL';
+}
+function openCastPicker(){
+  var url=getCurrentStreamUrl();
+  if(!url){toast('Nothing playing to cast','warn');return;}
+  var ol=gel('castOverlay');
+  ol.style.display='flex';
+  gel('castStatus').textContent='Scanning network (5s)...';
+  gel('castDeviceList').innerHTML='';
+  window.darkflix.castDiscover().then(function(devices){
+    if(!devices||!devices.length){
+      gel('castStatus').textContent='No devices found on your network.';
+      return;
+    }
+    gel('castStatus').textContent=devices.length+' device(s) found:';
+    window._castDevices=devices;
+    gel('castDeviceList').innerHTML=devices.map(function(d,i){
+      return '<button class="btn" style="text-align:left;width:100%" onclick="doCast('+i+')">'+(d.type==='chromecast'?'📺 ':'📡 ')+d.name+'</button>';
+    }).join('');
+  }).catch(function(e){
+    gel('castStatus').textContent='Scan failed: '+e.message;
+  });
+}
+function closeCastPicker(){gel('castOverlay').style.display='none';}
+function stopCast(){window.darkflix.castStop().then(function(){window._isCasting=false;window._castingDevice=null;var av=getActiveVid();if(av){av.muted=false;av.play();}gel('castStopBar').style.display='none';toast('Cast stopped','ok');});}
+function doCast(i){
+  var device=(window._castDevices||[])[i];
+  if(!device){toast('Device not found','warn');return;}
+  var url=getCurrentStreamUrl();
+  var type=getCurrentContentType();
+  if(!url){toast('Nothing playing','warn');return;}
+  gel('castStatus').textContent='Connecting to '+device.name+'...';
+  gel('castDeviceList').innerHTML='';
+  window.darkflix.castSend(device,url,type).then(function(r){
+    if(r&&r.ok){
+      window._isCasting=true;
+      window._castingDevice=device;
+      var av=getActiveVid();if(av){av.muted=true;av.pause();}
+      var nameEl=gel('castingDeviceName');if(nameEl)nameEl.textContent=device.name;
+      toast('Casting to '+device.name,'ok');
+      closeCastPicker();
+      gel('castStopBar').style.display='flex';
+    }else{
+      gel('castStatus').textContent='Cast failed: '+(r&&r.error?r.error:'Unknown error');
+    }
+  }).catch(function(e){
+    gel('castStatus').textContent='Cast error: '+e.message;
+  });
 }
 
 // ── Broad category map ────────────────────────────────────────────────────────
@@ -1720,6 +1786,7 @@ function stopAllVideo(){
   if(window._mpegtsP){try{window._mpegtsP.destroy();}catch(e){}window._mpegtsP=null;}
 }
 function loadStream(vid,url,errId){
+  _activeStreamUrl=url;
   if(!vid||!url){showErr(errId,'No URL');return;}
   dbg('loadStream: '+url.split('?')[0].split('/').slice(-2).join('/'));
   stopAllVideo();
@@ -1910,5 +1977,19 @@ if(_chListEl){
   }catch(e){dbg('No last watched to restore','warn');}
 })();
 </script>
+  <div id="castStopBar" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--s1);border:1px solid var(--accent);border-radius:8px;padding:10px 16px;z-index:998;align-items:center;gap:12px;font-size:13px">
+    <span>📡 Casting to <span id="castingDeviceName">TV</span></span>
+    <button class="btn" style="background:var(--accent);color:#000;border-color:var(--accent)" onclick="stopCast()">Stop Cast</button>
+  </div>
+  <div id="castOverlay" style="display:none;position:fixed;inset:0;background:#000a;z-index:999;align-items:center;justify-content:center">
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:20px;min-width:300px;max-width:420px;width:90%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:15px;font-weight:600">Cast to Device</div>
+        <button class="btn sm" onclick="closeCastPicker()">✕</button>
+      </div>
+      <div id="castStatus" style="font-size:12px;color:var(--dim);margin-bottom:10px">Scanning network...</div>
+      <div id="castDeviceList" style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto"></div>
+    </div>
+  </div>
 </body>
 </html>

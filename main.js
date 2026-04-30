@@ -127,6 +127,208 @@ ipcMain.handle('file:openM3U', async () => {
   }
 });
 
+
+// ── Cast Support ──────────────────────────────────────────────────────────────
+let _activeCastClient = null;
+let _activePlayer = null;
+const mdns = require('mdns-js');
+const { Client: SsdpClient } = require('node-ssdp');
+
+let _castDevices = [];
+
+ipcMain.handle('cast:discover', async () => {
+  _castDevices = [];
+  return new Promise((resolve) => {
+    const found = [];
+    const seen = new Set();
+
+    // Chromecast discovery via mDNS
+    try {
+      const browser = mdns.createBrowser(mdns.tcp('googlecast'));
+      browser.on('ready', () => browser.discover());
+      browser.on('update', (data) => {
+        const ip = data.addresses && data.addresses[0];
+        if(!ip) return;
+        let name = 'Chromecast';
+        if(data.txt && Array.isArray(data.txt)){
+          const fnEntry=data.txt.find(t=>typeof t==='string'&&t.startsWith('fn='));
+          if(fnEntry) name=fnEntry.slice(3);
+        } else if(data.txt&&data.txt.fn){ name=data.txt.fn; }
+        const key = 'cc:' + ip;
+        if (ip && !seen.has(key)) {
+          seen.add(key);
+          found.push({ id: key, name, type: 'chromecast', host: ip, port: data.port || 8009 });
+        }
+      });
+      setTimeout(() => { try { browser.stop(); } catch {} }, 4000);
+    } catch(e) {
+      console.error('[Cast] mDNS error:', e.message);
+    }
+
+    // DLNA/UPnP discovery via SSDP
+    try {
+      const ssdp = new SsdpClient();
+      ssdp.on('response', (headers, statusCode, rinfo) => {
+        const key = 'dlna:' + rinfo.address;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const loc = headers['LOCATION'] || '';
+          const server = headers['SERVER'] || '';
+          // Try to get a clean name from server string
+          let friendlyName = rinfo.address;
+          if(server) {
+            // Server strings like "Microsoft-Windows/10.0 UPnP/1.0" -> "Windows PC"
+            if(server.includes('Microsoft-Windows')) friendlyName = 'Windows PC';
+            else if(server.includes('LG')) friendlyName = 'LG TV';
+            else if(server.includes('Samsung')) friendlyName = 'Samsung TV';
+            else if(server.includes('Roku')) friendlyName = 'Roku';
+            else if(server.includes('Xbox')) friendlyName = 'Xbox';
+            else if(server.includes('Sony')) friendlyName = 'Sony TV';
+            else if(server.includes('Linux')) friendlyName = 'Smart TV';
+          else friendlyName = server.split('/')[0].split(' ')[0];
+          }
+          found.push({ id: key, name: friendlyName + ' (' + rinfo.address + ')', type: 'dlna', host: rinfo.address, location: loc });
+        }
+      });
+      // Search multiple service types to catch LG, Roku, Samsung, Xbox, etc.
+      const searchTypes = [
+        'urn:schemas-upnp-org:service:AVTransport:1',
+        'urn:schemas-upnp-org:device:MediaRenderer:1',
+        'ssdp:all',
+      ];
+      searchTypes.forEach(t => { try { ssdp.search(t); } catch {} });
+      setTimeout(() => { try { ssdp.stop(); } catch {} }, 4000);
+    } catch(e) {
+      console.error('[Cast] SSDP error:', e.message);
+    }
+
+    // Resolve after 4.5s with whatever we found
+    setTimeout(() => {
+      _castDevices = found;
+      resolve(found);
+    }, 4500);
+  });
+});
+
+ipcMain.handle('cast:send', async (e, device, streamUrl, contentType) => {
+  console.log('[Cast] Sending to', device.name, streamUrl);
+  try {
+    if (device.type === 'chromecast') {
+      const { Client, DefaultMediaReceiver } = require('castv2-client');
+      return new Promise((resolve) => {
+        const client = new Client();
+        client.connect(device.host, () => {
+          client.launch(DefaultMediaReceiver, (err, player) => {
+            if (err) { client.close(); return resolve({ ok: false, error: err.message }); }
+            // Force correct content type for raw IPTV streams
+            let resolvedType = contentType || 'application/x-mpegURL';
+            if(!streamUrl.includes('.') || streamUrl.match(/\/[^.]+$/)){
+              resolvedType = 'video/mp2t';
+            }
+            const media = {
+              contentId: streamUrl,
+              contentType: resolvedType,
+              streamType: streamUrl.endsWith('.mp4') ? 'BUFFERED' : 'LIVE',
+            };
+            player.load(media, { autoplay: true }, (err) => {
+              if (err) { client.close(); return resolve({ ok: false, error: err.message }); }
+              _activeCastClient = client;
+              _activePlayer = player;
+              resolve({ ok: true });
+            });
+          });
+        });
+        client.on('error', (err) => { resolve({ ok: false, error: err.message }); });
+      });
+    }
+
+    if (device.type === 'dlna') {
+      try {
+        // Step 1: Fetch device XML to find real AVTransport control URL
+        let avTransportUrl = null;
+        if(device.location) {
+          const xmlText = await nodeFetch(device.location);
+          // Extract friendly name from XML if available
+          const nameMatch = xmlText.match(/<friendlyName>([^<]+)<\/friendlyName>/i);
+          if(nameMatch) console.log('[Cast] Device friendly name:', nameMatch[1]);
+          // Find AVTransport service controlURL
+          // Try AVTransport first, fall back to any controlURL (LG uses proprietary service)
+          let avMatch = xmlText.match(/AVTransport[\s\S]*?<controlURL>([^<]+)<\/controlURL>/i);
+          if(!avMatch) avMatch = xmlText.match(/<controlURL>([^<]+)<\/controlURL>/i);
+          if(avMatch) {
+            const controlPath = avMatch[1].startsWith('/') ? avMatch[1] : '/' + avMatch[1];
+            const locUrl = new URL(device.location);
+            avTransportUrl = locUrl.protocol + '//' + locUrl.hostname + ':' + (locUrl.port||80) + controlPath;
+          }
+        }
+        if(!avTransportUrl) {
+          // Fallback guesses for common devices
+          avTransportUrl = 'http://' + device.host + ':7676/dmr/control/AVTransport';
+        }
+        console.log('[Cast] DLNA AVTransport URL:', avTransportUrl);
+
+        const envelope = (body) =>
+          '<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>' + body + '</s:Body></s:Envelope>';
+        // Build DIDL metadata required by Windows/Xbox DLNA
+        const mime = contentType || 'video/mp4';
+        const didl = '&lt;DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"&gt;&lt;item id="0" parentID="-1" restricted="1"&gt;&lt;dc:title&gt;Darkflix Stream&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.videoItem&lt;/upnp:class&gt;&lt;res protocolInfo="http-get:*:' + mime + ':*"&gt;' + streamUrl + '&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;';
+        const setUri = envelope(
+          '<u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID><CurrentURI>' + streamUrl + '</CurrentURI><CurrentURIMetaData>' + didl + '</CurrentURIMetaData></u:SetAVTransportURI>');
+        const play = envelope(
+          '<u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID><Speed>1</Speed></u:Play>');
+
+        const soapPost = (url, body, action) => new Promise((res, rej) => {
+          const u = new URL(url);
+          const opts = { hostname: u.hostname, port: parseInt(u.port)||80, path: u.pathname, method: 'POST',
+            headers: { 'Content-Type': 'text/xml; charset="utf-8"', 'SOAPAction': '"' + action + '"',
+              'Content-Length': Buffer.byteLength(body), 'Connection': 'close' } };
+          const req = http.request(opts, (r) => {
+            let data = '';
+            r.on('data', c => data += c);
+            r.on('end', () => res({ status: r.statusCode, body: data }));
+          });
+          req.on('error', rej);
+          req.write(body);
+          req.end();
+        });
+
+        const r1 = await soapPost(avTransportUrl, setUri, 'urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI');
+        console.log('[Cast] DLNA SetAVTransportURI status:', r1.status, r1.body.slice(0,500));
+        if(r1.status >= 400) return { ok: false, error: 'SetAVTransportURI failed: ' + r1.status + ' ' + r1.body };
+
+        const r2 = await soapPost(avTransportUrl, play, 'urn:schemas-upnp-org:service:AVTransport:1#Play');
+        console.log('[Cast] DLNA Play status:', r2.status);
+        if(r2.status >= 400) return { ok: false, error: 'Play failed: ' + r2.status + ' ' + r2.body };
+
+        return { ok: true };
+      } catch(e) {
+        return { ok: false, error: e.message };
+      }
+    }
+
+    return { ok: false, error: 'Unknown device type' };
+  } catch(e) {
+    console.error('[Cast] Send error:', e.message);
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('cast:stop', () => {
+  if(_activeCastClient){
+    try{
+      _activeCastClient.stop(_activePlayer, function(){
+        try{_activeCastClient.close();}catch(e){}
+      });
+    }catch(e){
+      try{_activeCastClient.close();}catch(e2){}
+    }
+    _activeCastClient = null;
+    _activePlayer = null;
+    return { ok: true };
+  }
+  return { ok: false };
+});
+
 function nodeFetch(url, extraHeaders = {}, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 5) { reject(new Error('Too many redirects')); return; }

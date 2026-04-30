@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('darkflix', {
   encrypt:     (text)       => ipcRenderer.invoke('crypto:encrypt', text),
   decrypt:     (text)       => ipcRenderer.invoke('crypto:decrypt', text),
   platform:    process.platform,
+  castDiscover: ()                    => ipcRenderer.invoke('cast:discover'),
+  castSend:     (device, url, type)   => ipcRenderer.invoke('cast:send', device, url, type),
+  castStop:     ()                    => ipcRenderer.invoke('cast:stop'),
 });
 
 console.log('[DEBUG][Preload] Bridge loading - Status: Success');
