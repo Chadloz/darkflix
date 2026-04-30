@@ -131,6 +131,7 @@ ipcMain.handle('file:openM3U', async () => {
 // ── Cast Support ──────────────────────────────────────────────────────────────
 let _activeCastClient = null;
 let _activePlayer = null;
+let _activeDlnaInfo = null;
 const mdns = require('mdns-js');
 const { Client: SsdpClient } = require('node-ssdp');
 
@@ -169,7 +170,11 @@ ipcMain.handle('cast:discover', async () => {
     try {
       const ssdp = new SsdpClient();
       ssdp.on('response', (headers, statusCode, rinfo) => {
-        const key = 'dlna:' + rinfo.address;
+        const ip = rinfo.address;
+        // Filter routers, link-local, and devices already found as Chromecast
+        if(ip === '10.0.0.1' || ip === '192.168.1.1' || ip.startsWith('169.254')) return;
+        if(seen.has('cc:' + ip)) return;
+        const key = 'dlna:' + ip;
         if (!seen.has(key)) {
           seen.add(key);
           const loc = headers['LOCATION'] || '';
@@ -187,7 +192,7 @@ ipcMain.handle('cast:discover', async () => {
             else if(server.includes('Linux')) friendlyName = 'Smart TV';
           else friendlyName = server.split('/')[0].split(' ')[0];
           }
-          found.push({ id: key, name: friendlyName + ' (' + rinfo.address + ')', type: 'dlna', host: rinfo.address, location: loc });
+          found.push({ id: key, name: friendlyName + ' (' + ip + ')', type: 'dlna', host: ip, location: loc });
         }
       });
       // Search multiple service types to catch LG, Roku, Samsung, Xbox, etc.
@@ -204,14 +209,21 @@ ipcMain.handle('cast:discover', async () => {
 
     // Resolve after 4.5s with whatever we found
     setTimeout(() => {
-      _castDevices = found;
-      resolve(found);
+      // Final dedup -- prefer Chromecast entries over DLNA for same IP
+      const ipMap = {};
+      found.forEach(d => {
+        const ip = d.host;
+        if(!ipMap[ip] || d.type === 'chromecast') ipMap[ip] = d;
+      });
+      const deduped = Object.values(ipMap);
+      _castDevices = deduped;
+      resolve(deduped);
     }, 4500);
   });
 });
 
 ipcMain.handle('cast:send', async (e, device, streamUrl, contentType) => {
-  console.log('[Cast] Sending to', device.name, streamUrl);
+  console.log('[Cast] Sending to', device.name, device.host, streamUrl);
   try {
     if (device.type === 'chromecast') {
       const { Client, DefaultMediaReceiver } = require('castv2-client');
@@ -292,6 +304,10 @@ ipcMain.handle('cast:send', async (e, device, streamUrl, contentType) => {
           req.end();
         });
 
+        // Stop any current playback first
+        const stopEnv = envelope('<u:Stop xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID></u:Stop>');
+        try { await soapPost(avTransportUrl, stopEnv, 'urn:schemas-upnp-org:service:AVTransport:1#Stop'); } catch(e) {}
+
         const r1 = await soapPost(avTransportUrl, setUri, 'urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI');
         console.log('[Cast] DLNA SetAVTransportURI status:', r1.status, r1.body.slice(0,500));
         if(r1.status >= 400) return { ok: false, error: 'SetAVTransportURI failed: ' + r1.status + ' ' + r1.body };
@@ -300,6 +316,7 @@ ipcMain.handle('cast:send', async (e, device, streamUrl, contentType) => {
         console.log('[Cast] DLNA Play status:', r2.status);
         if(r2.status >= 400) return { ok: false, error: 'Play failed: ' + r2.status + ' ' + r2.body };
 
+        _activeDlnaInfo = { avTransportUrl, soapPost, envelope };
         return { ok: true };
       } catch(e) {
         return { ok: false, error: e.message };
@@ -313,7 +330,7 @@ ipcMain.handle('cast:send', async (e, device, streamUrl, contentType) => {
   }
 });
 
-ipcMain.handle('cast:stop', () => {
+ipcMain.handle('cast:stop', async () => {
   if(_activeCastClient){
     try{
       _activeCastClient.stop(_activePlayer, function(){
@@ -324,9 +341,16 @@ ipcMain.handle('cast:stop', () => {
     }
     _activeCastClient = null;
     _activePlayer = null;
-    return { ok: true };
   }
-  return { ok: false };
+  if(_activeDlnaInfo){
+    try{
+      const { avTransportUrl, soapPost, envelope } = _activeDlnaInfo;
+      const stopEnv = envelope('<u:Stop xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID></u:Stop>');
+      await soapPost(avTransportUrl, stopEnv, 'urn:schemas-upnp-org:service:AVTransport:1#Stop');
+    }catch(e){ console.error('[Cast] DLNA stop error:', e.message); }
+    _activeDlnaInfo = null;
+  }
+  return { ok: true };
 });
 
 function nodeFetch(url, extraHeaders = {}, redirects = 0) {
