@@ -90,3 +90,9 @@ Not needed. Stalker accounts working fine after previous fixes. Stalkerhek solve
 - Light refactor: globals consolidated, var->let, section comments
 - Stalkerhek removed from roadmap
 - MKV audio confirmed write-off
+
+## Known Issues
+- Cast not working on PC: "No handler registered for 'cast:discover'"
+  - Likely cause: mdns-js or node-ssdp not installed on PC, or native deps failing on Windows
+  - Fix: cd ~/darkflix && npm install on PC, then test
+  - May need to handle require() failures gracefully in main.js cast section
