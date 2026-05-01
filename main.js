@@ -132,7 +132,8 @@ ipcMain.handle('file:openM3U', async () => {
 let _activeCastClient = null;
 let _activePlayer = null;
 let _activeDlnaInfo = null;
-const mdns = require('mdns-js');
+let mdns = null;
+try { mdns = require('mdns-js'); } catch(e) { console.warn('[Cast] mdns-js not available, Chromecast discovery disabled:', e.message); }
 const { Client: SsdpClient } = require('node-ssdp');
 
 let _castDevices = [];
@@ -145,6 +146,7 @@ ipcMain.handle('cast:discover', async () => {
 
     // Chromecast discovery via mDNS
     try {
+      if(!mdns) throw new Error('mdns-js not available');
       const browser = mdns.createBrowser(mdns.tcp('googlecast'));
       browser.on('ready', () => browser.discover());
       browser.on('update', (data) => {
