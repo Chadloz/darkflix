@@ -730,14 +730,28 @@ function stableId(str){
 }
 function parseM3U(text){
   const lines=text.split(/\r?\n/),out=[];let cur=null;
+  function attr(line,name){const m=line.match(new RegExp(name+'=["\']([^"\']*)["\']'));return m?m[1]:'';}
   for(const raw of lines){
     const l=raw.trim();
     if(l.startsWith('#EXTINF:')){
       cur={id:'',name:'',url:'',group:'',logo:'',acctId:'m3u'};
-      const lm=l.match(/tvg-logo="([^"]*)"/);if(lm)cur.logo=lm[1];
-      const gm=l.match(/group-title="([^"]*)"/);if(gm)cur.group=gm[1];
-      const ci=l.lastIndexOf(',');if(ci!==-1)cur.name=l.substring(ci+1).trim();
-    }else if(l&&!l.startsWith('#')&&cur){cur.url=l;cur.id=stableId(l);if(cur.name&&cur.url)out.push(cur);cur=null;}
+      cur.logo=attr(l,'tvg-logo');
+      cur.group=attr(l,'group-title');
+      const tvgName=attr(l,'tvg-name');
+      const ci=l.lastIndexOf(',');
+      const commaName=ci!==-1?l.substring(ci+1).trim():'';
+      cur.name=commaName||tvgName||'Unknown';
+      if(!cur.group)cur.group='General';
+      if(!cur.group)cur.group='General';
+      cur._tvgId=attr(l,'tvg-id');
+    }else if(l.startsWith('#EXTGRP:')&&cur){
+      if(!cur.group)cur.group=l.substring(8).trim();
+    }else if(l&&!l.startsWith('#')&&cur){
+      cur.url=l;
+      cur.id=stableId(l);
+      if(cur.name&&cur.url)out.push(cur);
+      cur=null;
+    }
   }
   dbg('parseM3U: '+out.length+' channels','ok');
   return out;
