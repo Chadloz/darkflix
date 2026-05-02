@@ -105,3 +105,17 @@ Not needed. Stalker accounts working fine after previous fixes. Stalkerhek solve
 5. Add Stalkerhek HLS endpoint to Darkflix as M3U account
 6. Test live TV casting through proxy -- should work since output is HLS
 - Set Docker + Stalkerhek to auto-start on boot
+
+## Dispatcharr Research Notes
+- Active project, recently hit BETA with major features
+- Docker-based, runs on Mac/PC/Linux
+- Web UI at port 9191
+- Takes all IPTV accounts as input, outputs unified M3U/Xtream/HDHomeRun
+- Server-level auto-failover -- better than client-side failover we built
+- EPG auto-match built in
+- Stream proxy engine -- multiple devices share one upstream connection
+- Repo: github.com/Dispatcharr/Dispatcharr
+- Docs: dispatcharr.github.io/Dispatcharr-Docs
+- Setup: Docker compose, same as Stalkerhek -- do both after WA
+- If Dispatcharr is running, Darkflix's built-in failover becomes redundant
+  but keep it as a fallback for users not running Dispatcharr
