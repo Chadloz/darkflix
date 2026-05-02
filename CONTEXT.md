@@ -96,3 +96,12 @@ Not needed. Stalker accounts working fine after previous fixes. Stalkerhek solve
   - Likely cause: mdns-js or node-ssdp not installed on PC, or native deps failing on Windows
   - Fix: cd ~/darkflix && npm install on PC, then test
   - May need to handle require() failures gracefully in main.js cast section
+
+## Stalkerhek Setup (do when back from WA)
+1. Install Docker on Mac: https://docs.docker.com/desktop/install/mac-install/
+2. Install Docker on PC: https://docs.docker.com/desktop/install/windows-install/
+3. Run Stalkerhek container on each machine
+4. Add Znag Stalker portal URL + MAC to Stalkerhek web UI
+5. Add Stalkerhek HLS endpoint to Darkflix as M3U account
+6. Test live TV casting through proxy -- should work since output is HLS
+- Set Docker + Stalkerhek to auto-start on boot
