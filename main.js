@@ -129,6 +129,7 @@ ipcMain.handle('file:openM3U', async () => {
 
 
 // ── Cast Support ──────────────────────────────────────────────────────────────
+const HLS_PROXY = 'https://darkflix-hls-proxy.chadavidlozano.workers.dev';
 let _activeCastClient = null;
 let _activePlayer = null;
 let _activeDlnaInfo = null;
@@ -225,7 +226,14 @@ ipcMain.handle('cast:discover', async () => {
 });
 
 ipcMain.handle('cast:send', async (e, device, streamUrl, contentType) => {
-  console.log('[Cast] Sending to', device.name, device.host, streamUrl);
+  // Route HLS streams through Cloudflare proxy for Chromecast
+  let castUrl = streamUrl;
+  if(device.type === 'chromecast' && !streamUrl.includes('.mp4') && !streamUrl.includes('.mkv')){
+    castUrl = HLS_PROXY + '/?url=' + encodeURIComponent(streamUrl);
+    console.log('[Cast] Proxying through Cloudflare:', castUrl);
+  } else {
+    console.log('[Cast] Sending to', device.name, device.host, streamUrl);
+  }
   try {
     if (device.type === 'chromecast') {
       const { Client, DefaultMediaReceiver } = require('castv2-client');
@@ -240,7 +248,7 @@ ipcMain.handle('cast:send', async (e, device, streamUrl, contentType) => {
               resolvedType = 'video/mp2t';
             }
             const media = {
-              contentId: streamUrl,
+              contentId: castUrl,
               contentType: resolvedType,
               streamType: streamUrl.endsWith('.mp4') ? 'BUFFERED' : 'LIVE',
             };
