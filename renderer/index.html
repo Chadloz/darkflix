@@ -1853,7 +1853,33 @@ function toast(msg,type){
   _toastTimer=setTimeout(function(){el.classList.remove('show');},3000);
 }
 function clrErr(id){const e=gel(id);if(e){e.textContent='';e.classList.remove('show');}}
-function showErr(id,msg){const e=gel(id);if(e){e.textContent=msg;e.classList.add('show');}dbg('Stream error: '+msg,'err');}
+// ── Stream Auto-Failover ──────────────────────────────────────────────────────
+let _failoverUsed = new Set();
+function tryFailover(errId) {
+  if(errId !== 'liveErr') return false;
+  const ch = S.live.find(function(c){return c.id===activeChId;});
+  if(!ch) return false;
+  // Don't failover if we already tried this channel
+  if(_failoverUsed.has(ch.id)) return false;
+  const alt = S.live.find(function(c){
+    return c.id !== ch.id &&
+           c.acctId !== ch.acctId &&
+           !_failoverUsed.has(c.id) &&
+           c.name.toLowerCase().trim() === ch.name.toLowerCase().trim();
+  });
+  if(!alt) return false;
+  _failoverUsed.add(ch.id);
+  _failoverUsed.add(alt.id);
+  dbg('Failover: switching to '+alt.name+' via '+alt.acctId,'warn');
+  toast('Stream failed — switching to backup','warn');
+  setTimeout(function(){playChannel(alt.id);}, 500);
+  return true;
+}
+
+function showErr(id,msg){
+  if(tryFailover(id)) return;
+  const e=gel(id);if(e){e.textContent=msg;e.classList.add('show');}dbg('Stream error: '+msg,'err');
+}
 
 function stopAllVideo(){
   ['liveVid','mvVid','svVid'].forEach(function(id){
@@ -1890,7 +1916,7 @@ function hlsPlay(vid,url,errId,onFail){
   hls=new Hls({enableWorker:true,maxBufferLength:60,maxMaxBufferLength:120,fragLoadingTimeOut:20000,manifestLoadingTimeOut:15000,fragLoadingMaxRetry:3,manifestLoadingMaxRetry:3,levelLoadingMaxRetry:3});
   hls.loadSource(url);hls.attachMedia(vid);
   hls.on(Hls.Events.MANIFEST_PARSED,function(){
-    dbg('HLS OK','ok');mediaRec=0;
+    dbg('HLS OK','ok');mediaRec=0;_failoverUsed.clear();
     if(S.settings.autoplay)vid.play().catch(function(){});
     if(CV==='live'){
       var savedScroll=gel('chList').scrollTop;
