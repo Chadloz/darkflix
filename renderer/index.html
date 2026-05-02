@@ -300,6 +300,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <button class="btn sm" onclick="fsInline('mvVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button>
     </div>
     <div class="err-bar" id="mvErr"></div>
+    <div id="mvTMDB" style="display:none;gap:12px;padding:10px 12px;background:var(--s1);border-top:1px solid var(--border);align-items:flex-start"></div>
   </div>
   <div class="grid-wrap">
     <div class="grid-top">
@@ -326,6 +327,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <button class="btn sm" onclick="fsInline('svVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button>
     </div>
     <div class="err-bar" id="svErr"></div>
+    <div id="svTMDB" style="display:none;gap:12px;padding:10px 12px;background:var(--s1);border-top:1px solid var(--border);align-items:flex-start"></div>
     <div id="svEps" style="padding:8px 12px"></div>
   </div>
   <div class="grid-wrap">
@@ -606,6 +608,49 @@ function doCast(i){
   }).catch(function(e){
     gel('castStatus').textContent='Cast error: '+e.message;
   });
+}
+
+// ── TMDB ──────────────────────────────────────────────────────────────────────
+const TMDB_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI5OGQ5OWY3MjVjOGQxMTgyM2U0OTQ0NGFlYzUzZjY2NCIsIm5iZiI6MTc3NzcyOTk4My4zNTAwMDAxLCJzdWIiOiI2OWY2MDFiZmU0N2FlODI5OTE0MjIwOTAiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.URKXSw517p2mOjp-LtOUuFaYmtCJGKZN2r76cP2mecs';
+const TMDB_IMG = 'https://image.tmdb.org/t/p/w300';
+const _tmdbCache = {};
+
+async function fetchTMDB(name, type) {
+  const key = type + ':' + name.toLowerCase().trim();
+  if(_tmdbCache[key]) return _tmdbCache[key];
+  try {
+    const q = encodeURIComponent(name.replace(/\s*\(?\d{4}\)?\s*$/, '').replace(/\s+S\d+.*$/i, '').trim());
+    const endpoint = type === 'movie' ? 'movie' : 'tv';
+    const r = await fetch('https://api.themoviedb.org/3/search/' + endpoint + '?query=' + q + '&language=en-US&page=1', {
+      headers: { 'Authorization': 'Bearer ' + TMDB_TOKEN, 'Content-Type': 'application/json' }
+    });
+    const data = await r.json();
+    const result = data.results && data.results[0];
+    if(!result) { _tmdbCache[key] = null; return null; }
+    const meta = {
+      poster: result.poster_path ? TMDB_IMG + result.poster_path : null,
+      plot: result.overview || '',
+      rating: result.vote_average ? result.vote_average.toFixed(1) : '',
+      year: (result.release_date || result.first_air_date || '').slice(0, 4),
+      title: result.title || result.name || name,
+    };
+    _tmdbCache[key] = meta;
+    return meta;
+  } catch(e) { return null; }
+}
+
+function renderTMDBPanel(panelId, meta, itemName) {
+  const el = gel(panelId);
+  if(!el) return;
+  if(!meta) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML =
+    (meta.poster ? '<img src="' + meta.poster + '" style="width:80px;border-radius:6px;flex-shrink:0;object-fit:cover" onerror="this.style.display=\'none\'">' : '') +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:4px">' + E(meta.title) + (meta.year ? ' <span style="color:var(--dim);font-weight:400">(' + meta.year + ')</span>' : '') + '</div>' +
+      (meta.rating ? '<div style="font-size:11px;color:var(--accent);margin-bottom:6px">⭐ ' + meta.rating + ' / 10</div>' : '') +
+      (meta.plot ? '<div style="font-size:11px;color:var(--dim2);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">' + E(meta.plot) + '</div>' : '') +
+    '</div>';
 }
 
 // ── Broad category map ────────────────────────────────────────────────────────
@@ -1119,6 +1164,8 @@ window.playItem=function(id,type){
   }
   if(type==='movie'){
     gel('mvPlayer').classList.add('show');gel('mvTitle').textContent=item.name;
+    gel('mvTMDB').style.display='none';
+    fetchTMDB(item.name,'movie').then(function(m){renderTMDBPanel('mvTMDB',m,item.name);});
     gel('mvFavBtn').textContent=S.favorites.has(id)?'★':'☆';
     clrErr('mvErr');if(item.url)loadStream(gel('mvVid'),item.url,'mvErr');
     gel('vMovies').scrollTop=0;
@@ -1136,6 +1183,8 @@ window.playItem=function(id,type){
     },10000);
   }else{
     gel('svPlayer').classList.add('show');gel('svTitle').textContent=item.name;
+    gel('svTMDB').style.display='none';
+    fetchTMDB(item.name,'tv').then(function(m){renderTMDBPanel('svTMDB',m,item.name);});
     gel('svFavBtn').textContent=S.favorites.has(id)?'★':'☆';
     clrErr('svErr');if(item.url)loadStream(gel('svVid'),item.url,'svErr');
     loadEps(item);gel('vSeries').scrollTop=0;
