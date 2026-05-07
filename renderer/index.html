@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Darkflix</title>
+<title>Black Mango</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.14.6/dist/shaka-player.compiled.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
@@ -20,7 +20,7 @@ input,textarea,select{font-family:'Outfit',sans-serif;-webkit-app-region:no-drag
 .ham{width:36px;height:36px;border:1px solid var(--border);border-radius:var(--r);background:var(--s2);color:var(--text);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;flex-shrink:0;}
 .ham:hover{border-color:var(--accent);color:var(--accent);}
 .logo-text{font-weight:800;font-size:20px;letter-spacing:-1px;}
-.logo-dark{color:#fff;}.logo-flix{color:var(--accent);}
+.logo-black{color:#fff;}.logo-mango{color:var(--accent);}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
 .view-label{font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:1px;}
 .free-panel{position:absolute;top:50px;right:16px;background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:480px;overflow-y:auto;width:360px;z-index:100;box-shadow:0 8px 24px #0006;}
@@ -191,7 +191,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
 <body>
 
 <div class="loading-scr" id="loadScr">
-  <h1><span class="logo-dark">Dark</span><span class="logo-flix">flix</span></h1>
+  <h1><span class="logo-black">Black </span><span class="logo-mango">Mango</span></h1>
   <p id="loadMsg">Loading...</p>
 </div>
 
@@ -199,7 +199,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
 <div class="toast" id="toast"></div>
 <div class="drawer" id="drawer">
   <div class="drawer-head">
-    <div style="font-size:20px;font-weight:800;flex:1"><span class="logo-dark">Dark</span><span class="logo-flix">flix</span></div>
+    <div style="font-size:20px;font-weight:800;flex:1"><span class="logo-black">Black </span><span class="logo-mango">Mango</span></div>
     <div class="drawer-close" onclick="closeDrawer()">✕</div>
   </div>
   <div class="nav-section">
@@ -217,12 +217,12 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
     <div class="nav-item" data-view="accounts" onclick="nav('accounts')"><span class="nav-icon">👤</span>Accounts<span class="nav-badge" id="bA">0</span></div>
     <div class="nav-item" data-view="settings" onclick="nav('settings')"><span class="nav-icon">⚙️</span>Settings</div>
   </div>
-  <div class="drawer-footer">Darkflix v1.0</div>
+  <div class="drawer-footer">Black Mango</div>
 </div>
 
 <div class="topbar">
   <button class="ham" onclick="openDrawer()">☰</button>
-  <div class="logo-text"><span class="logo-dark">Dark</span><span class="logo-flix">flix</span></div>
+  <div class="logo-text"><span class="logo-black">Black </span><span class="logo-mango">Mango</span></div>
   <div class="topbar-right">
     <div class="acct-badge" id="acctBadge" onclick="nav('accounts')"></div>
     <span class="view-label" id="viewLabel">HOME</span>
@@ -234,7 +234,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
 <div class="view active" id="vHome" style="overflow-y:auto">
   <div class="home-hero">
     <div class="home-logo">🎬</div>
-    <div><div class="home-title"><span style="color:#fff">Dark</span><span style="color:var(--accent)">flix</span></div><div class="home-sub" id="homeSub">Add an account to get started.</div></div>
+    <div><div class="home-title"><span style="color:#fff">Black </span><span style="color:var(--accent)">Mango</span></div><div class="home-sub" id="homeSub">Add an account to get started.</div></div>
   </div>
   <div class="home-actions">
     <button class="btn primary" onclick="openModal('mAA')">+ Account</button>
@@ -401,6 +401,9 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
         <div id="dbgLog" style="background:#000;color:#0f0;font-family:monospace;font-size:10px;padding:8px;border-radius:6px;max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></div>
       </div>
     </div>
+    <div class="sg"><h3>Updates</h3>
+      <div class="sr"><div class="sl">Check for the latest version of Black Mango.<div style="font-size:11px;color:var(--dim2);margin-top:2px" id="updateStatus"></div></div><button class="btn sm" id="updateBtn" onclick="checkForUpdates()">Check for Updates</button></div>
+    </div>
   </div>
 </div>
 
@@ -502,7 +505,8 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <div class="st" id="acSt"></div>
       <button class="btn primary sm" onclick="addChannel()" style="align-self:flex-end">Add Channel</button>
     </div>
-  </div>
+    <div class="sr"><div class="sl" style="flex-direction:column;align-items:flex-start;gap:4px"><div>Updates</div><div style="font-size:11px;color:var(--dim2)" id="updateStatus">Check for the latest version of Black Mango.</div></div><button class="btn sm" id="updateBtn" onclick="checkForUpdates()">Check for Updates</button></div>
+</div>
 </div>
 
 <script>
@@ -1531,7 +1535,7 @@ async function exportData(){
   const data={accounts:S.accounts,live:S.live,movies:S.movies,series:S.series,favorites:[...S.favorites],recents:S.recents,settings:S.settings};
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
-  a.download='darkflix-backup.json';a.click();
+  a.download='blackmango-backup.json';a.click();
 }
 async function importData(file){
   if(!file)return;
@@ -2015,7 +2019,42 @@ if(_chListEl){
   gel('loadMsg').textContent='Restoring your session...';
   await new Promise(function(r){setTimeout(r,200);});
   gel('loadScr').style.display='none';
-  dbg('Darkflix ready','ok');
+  dbg('Black Mango ready','ok');
+
+// ── Updater ──────────────────────────────────────────────────────────────────
+window.darkflix.onUpdateAvailable(function(version) {
+  gel('updateStatus').textContent = 'Version ' + version + ' is available!';
+  gel('updateBtn').textContent = 'Download Update';
+  gel('updateBtn').onclick = function() {
+    gel('updateBtn').textContent = 'Downloading...';
+    gel('updateBtn').disabled = true;
+    window.darkflix.updateDownload();
+  };
+  toast('Update available: v' + version, 'ok');
+});
+window.darkflix.onUpdateNotAvailable(function() {
+  gel('updateStatus').textContent = 'You are on the latest version.';
+});
+window.darkflix.onUpdateDownloaded(function() {
+  gel('updateStatus').textContent = 'Update downloaded. Restart to install.';
+  gel('updateBtn').textContent = 'Restart & Install';
+  gel('updateBtn').disabled = false;
+  gel('updateBtn').onclick = function() { window.darkflix.updateInstall(); };
+  toast('Update ready -- click Restart & Install in Settings', 'ok');
+});
+window.darkflix.onUpdateError(function(msg) {
+  gel('updateStatus').textContent = 'Update error: ' + msg;
+  gel('updateBtn').textContent = 'Check for Updates';
+  gel('updateBtn').disabled = false;
+  gel('updateBtn').onclick = checkForUpdates;
+});
+function checkForUpdates() {
+  gel('updateStatus').textContent = 'Checking...';
+  gel('updateBtn').disabled = true;
+  window.darkflix.updateCheck().then(function() {
+    setTimeout(function() { gel('updateBtn').disabled = false; }, 5000);
+  });
+}
   document.addEventListener('leavepictureinpicture',function(){
     dbg('PiP closed','ok');
     if(_pipSource){

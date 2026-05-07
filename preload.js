@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld('darkflix', {
   castDiscover: ()                    => ipcRenderer.invoke('cast:discover'),
   castSend:     (device, url, type)   => ipcRenderer.invoke('cast:send', device, url, type),
   castStop:     ()                    => ipcRenderer.invoke('cast:stop'),
+  updateCheck:    ()  => ipcRenderer.invoke('update:check'),
+  updateDownload: ()  => ipcRenderer.invoke('update:download'),
+  updateInstall:  ()  => ipcRenderer.invoke('update:install'),
+  onUpdateAvailable:    (cb) => ipcRenderer.on('update-available',    (e, v) => cb(v)),
+  onUpdateNotAvailable: (cb) => ipcRenderer.on('update-not-available', ()    => cb()),
+  onUpdateDownloaded:   (cb) => ipcRenderer.on('update-downloaded',   ()    => cb()),
+  onUpdateError:        (cb) => ipcRenderer.on('update-error',        (e, m) => cb(m)),
 });
 
 console.log('[DEBUG][Preload] Bridge loading - Status: Success');

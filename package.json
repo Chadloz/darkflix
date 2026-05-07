@@ -1,5 +1,5 @@
 {
-  "name": "darkflix",
+  "name": "black-mango-desktop",
   "version": "1.0.4",
   "description": "",
   "main": "main.js",
@@ -20,13 +20,14 @@
   "dependencies": {
     "castv2-client": "^1.2.0",
     "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.3",
     "mdns-js": "^1.0.3",
     "node-ssdp": "^4.0.1",
     "node-upnp-utils": "^1.0.3"
   },
   "build": {
-    "appId": "com.darkflix.app",
-    "productName": "Darkflix",
+    "appId": "com.blackmango.desktop",
+    "productName": "Black Mango",
     "files": [
       "main.js",
       "preload.js",
@@ -62,6 +63,17 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
-    "icon": "build/icon.png"
+    "icon": "build/icon.png",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Chadloz",
+        "repo": "darkflix"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Chadloz/darkflix"
   }
 }

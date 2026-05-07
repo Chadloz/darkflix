@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -24,7 +25,7 @@ function createWindow() {
     backgroundColor: '#0a0a0a',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 14, y: 16 } : undefined,
-    title: 'Darkflix',
+    title: 'Black Mango',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -36,8 +37,42 @@ function createWindow() {
   console.log('[DEBUG][Main] createWindow - Status: Success');
 }
 
+// ── Auto Updater ──────────────────────────────────────────────────────────────
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+
+autoUpdater.on('update-available', (info) => {
+  if(mainWindow) mainWindow.webContents.send('update-available', info.version);
+});
+
+autoUpdater.on('update-not-available', () => {
+  if(mainWindow) mainWindow.webContents.send('update-not-available');
+});
+
+autoUpdater.on('update-downloaded', () => {
+  if(mainWindow) mainWindow.webContents.send('update-downloaded');
+});
+
+autoUpdater.on('error', (err) => {
+  if(mainWindow) mainWindow.webContents.send('update-error', err.message);
+});
+
+ipcMain.handle('update:check', async () => {
+  try { await autoUpdater.checkForUpdates(); } catch(e) { return { error: e.message }; }
+  return { ok: true };
+});
+
+ipcMain.handle('update:download', async () => {
+  try { await autoUpdater.downloadUpdate(); } catch(e) { return { error: e.message }; }
+  return { ok: true };
+});
+
+ipcMain.handle('update:install', () => {
+  autoUpdater.quitAndInstall();
+});
+
 app.whenReady().then(() => {
-  storePath = path.join(app.getPath('userData'), 'darkflix.json');
+  storePath = path.join(app.getPath('userData'), 'blackmango.json');
   storeLoad();
   createWindow();
   console.log('[DEBUG][Main] App ready - Status: Started - Payload: ' + storePath);
@@ -102,7 +137,7 @@ ipcMain.handle('net:fetchJson', async (e, url, headers = {}) => {
 ipcMain.handle('file:saveLog', async (e, content) => {
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     title: 'Save Debug Log',
-    defaultPath: 'darkflix-debug-'+new Date().toISOString().slice(0,10)+'.txt',
+    defaultPath: 'blackmango-debug-'+new Date().toISOString().slice(0,10)+'.txt',
     filters: [{ name: 'Text Files', extensions: ['txt'] }],
   });
   if (canceled || !filePath) return { ok: false };
@@ -368,7 +403,7 @@ function nodeFetch(url, extraHeaders = {}, redirects = 0) {
     if (redirects > 5) { reject(new Error('Too many redirects')); return; }
     const mod = url.startsWith('https') ? https : http;
     const opts = {
-      headers: { 'User-Agent': 'Darkflix/1.0 IPTV', 'Accept': '*/*', ...extraHeaders },
+      headers: { 'User-Agent': 'BlackMango/1.0 IPTV', 'Accept': '*/*', ...extraHeaders },
       timeout: 20000,
     };
     const req = mod.get(url, opts, (res) => {
