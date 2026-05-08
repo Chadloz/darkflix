@@ -40,22 +40,23 @@ function createWindow() {
 // ── Auto Updater ──────────────────────────────────────────────────────────────
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
+if(!app.isPackaged) autoUpdater.forceDevUpdateConfig = true;
 
 autoUpdater.on('update-available', (info) => {
-  if(mainWindow) mainWindow.webContents.send('update-available', info.version);
+  if(win) win.webContents.send('update-available', info.version);
 });
 
 autoUpdater.on('update-not-available', () => {
-  if(mainWindow) mainWindow.webContents.send('update-not-available');
+  if(win) win.webContents.send('update-not-available');
 });
 
 autoUpdater.on('update-downloaded', () => {
-  if(mainWindow) mainWindow.webContents.send('update-downloaded');
+  if(win) win.webContents.send('update-downloaded');
 });
 
 autoUpdater.on('error', (err) => {
   console.error('[Updater] Error:', err.message);
-  if(mainWindow) mainWindow.webContents.send('update-error', err.message);
+  if(win) win.webContents.send('update-error', err.message);
 });
 
 autoUpdater.on('checking-for-update', () => {

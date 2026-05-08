@@ -402,7 +402,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       </div>
     </div>
     <div class="sg"><h3>Updates</h3>
-      <div class="sr"><div class="sl">Check for the latest version of Black Mango.<div style="font-size:11px;color:var(--dim2);margin-top:2px" id="updateStatus"></div></div><button class="btn sm" id="updateBtn" onclick="checkForUpdates()">Check for Updates</button></div>
+
     </div>
   </div>
 </div>
@@ -861,7 +861,7 @@ function updateBadges(){
 // ── Home ──────────────────────────────────────────────────────────────────────
 function renderHome(){
   if(S.accounts.length){
-    gel('homeSub').innerHTML=S.accounts.map(a=>'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:var(--gd);color:var(--green);font-size:11px;font-weight:600;margin-right:4px">'+E(a.name||'?')+'</span>').join('')+' <span style="color:var(--dim2);font-size:11px">v1.0</span>';
+    gel('homeSub').innerHTML=S.accounts.map(a=>'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:var(--gd);color:var(--green);font-size:11px;font-weight:600;margin-right:4px">'+E(a.name||'?')+'</span>').join('')+' <span style="color:var(--dim2);font-size:11px">v1.0.5</span>';
   }else gel('homeSub').textContent='Add an account to get started.';
   const mkCard=function(c,type){const ini=E(c.name.slice(0,2));return '<div class="card" onclick="if(!this._busy){this._busy=true;setTimeout(function(el){el._busy=false;},1000,this);playItem(\''+c.id+'\',\''+type+'\')}"><div class="card-img">'+(c.logo?'<img src="'+E(c.logo)+'" onerror="this.outerHTML=\'<div class=card-ini>'+ini+'</div>\'">'  :'<div class="card-ini">'+ini+'</div>')+'</div><div class="card-body"><div class="card-name">'+E(c.name)+'</div><div class="card-sub">'+E(c.group||type)+'</div></div></div>';};
   const sec=function(sid,lid,arr,type){if(arr.length){gel(sid).style.display='';gel(lid).innerHTML=arr.slice(0,20).map(function(c){return mkCard(c,type);}).join('');}else gel(sid).style.display='none';};
