@@ -54,7 +54,12 @@ autoUpdater.on('update-downloaded', () => {
 });
 
 autoUpdater.on('error', (err) => {
+  console.error('[Updater] Error:', err.message);
   if(mainWindow) mainWindow.webContents.send('update-error', err.message);
+});
+
+autoUpdater.on('checking-for-update', () => {
+  console.log('[Updater] Checking for update...');
 });
 
 ipcMain.handle('update:check', async () => {

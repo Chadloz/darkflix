@@ -2048,7 +2048,7 @@ window.darkflix.onUpdateError(function(msg) {
   gel('updateBtn').disabled = false;
   gel('updateBtn').onclick = checkForUpdates;
 });
-function checkForUpdates() {
+window.checkForUpdates = function() {
   gel('updateStatus').textContent = 'Checking...';
   gel('updateBtn').disabled = true;
   window.darkflix.updateCheck().then(function() {
