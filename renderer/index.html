@@ -631,12 +631,23 @@ async function fetchTMDB(name, type) {
     const data = await r.json();
     const result = data.results && data.results[0];
     if(!result) { _tmdbCache[key] = null; return null; }
+    // Fetch IMDB ID via external_ids endpoint
+    let imdbId = null;
+    try {
+      const extUrl = 'https://api.themoviedb.org/3/' + endpoint + '/' + result.id + '/external_ids';
+      const extR = await fetch(extUrl, { headers: { 'Authorization': 'Bearer ' + TMDB_TOKEN } });
+      const extData = await extR.json();
+      imdbId = extData.imdb_id || null;
+    } catch(e) {}
+
     const meta = {
       poster: result.poster_path ? TMDB_IMG + result.poster_path : null,
       plot: result.overview || '',
       rating: result.vote_average ? result.vote_average.toFixed(1) : '',
       year: (result.release_date || result.first_air_date || '').slice(0, 4),
       title: result.title || result.name || name,
+      imdbId: imdbId,
+      tmdbId: result.id,
     };
     _tmdbCache[key] = meta;
     return meta;
@@ -1143,6 +1154,7 @@ function renderGrid(listId,list,type){
 }
 
 window.playItem=function(id,type){
+  clearStreamIframe();
   if(type==='live'){nav('live');setTimeout(function(){playChannel(id);},50);return;}
   if(type==='movie'&&CV!=='movies'){nav('movies');setTimeout(function(){window.playItem(id,type);},50);return;}
   if(type==='series'&&CV!=='series'){nav('series');setTimeout(function(){window.playItem(id,type);},50);return;}
@@ -1167,6 +1179,7 @@ window.playItem=function(id,type){
     }
   }
   if(type==='movie'){
+    _lastPlayedItem = {id:id, name:item.name, type:'movie'};
     gel('mvPlayer').classList.add('show');gel('mvTitle').textContent=item.name;
     gel('mvTMDB').style.display='none';
     fetchTMDB(item.name,'movie').then(function(m){renderTMDBPanel('mvTMDB',m,item.name);});
@@ -1186,6 +1199,7 @@ window.playItem=function(id,type){
       if(v&&!v.paused&&v.currentTime>5)saveKey('lastWatched',{id:id,type:'movie',position:v.currentTime});
     },10000);
   }else{
+    _lastPlayedItem = {id:id, name:item.name, type:'series'};
     gel('svPlayer').classList.add('show');gel('svTitle').textContent=item.name;
     gel('svTMDB').style.display='none';
     fetchTMDB(item.name,'tv').then(function(m){renderTMDBPanel('svTMDB',m,item.name);});
@@ -1857,6 +1871,84 @@ function toast(msg,type){
   _toastTimer=setTimeout(function(){el.classList.remove('show');},3000);
 }
 function clrErr(id){const e=gel(id);if(e){e.textContent='';e.classList.remove('show');}}
+// ── StreamIMDB Fallback ───────────────────────────────────────────────────────
+const STREAM_SOURCES = [
+  'https://streamimdb.ru/embed/movie/{id}',
+  'https://vidsrc.me/embed/{id}',
+  'https://vidsrc.cc/v2/embed/movie/{id}',
+];
+const STREAM_SOURCES_TV = [
+  'https://streamimdb.ru/embed/tv/{id}/{s}/{e}',
+  'https://vidsrc.me/embed/{id}/{s}-{e}',
+  'https://vidsrc.cc/v2/embed/tv/{id}/{s}/{e}',
+];
+
+let _streamIframeActive = false;
+let _lastPlayedItem = null;
+
+function showStreamIframe(imdbId, type, season, episode, sourceIndex) {
+  sourceIndex = sourceIndex || 0;
+  const vid = type === 'movie' ? gel('mvVid') : gel('svVid');
+  if(!vid) return;
+
+  const existingIframe = gel('streamFallbackIframe');
+  if(existingIframe) existingIframe.remove();
+
+  const sources = type === 'movie' ? STREAM_SOURCES : STREAM_SOURCES_TV;
+  if(sourceIndex >= sources.length) {
+    dbg('All StreamIMDB sources failed', 'err');
+    toast('Backup sources unavailable', 'err');
+    return;
+  }
+
+  const url = sources[sourceIndex]
+    .replace('{id}', imdbId)
+    .replace('{s}', season || 1)
+    .replace('{e}', episode || 1);
+
+  const iframe = document.createElement('iframe');
+  iframe.id = 'streamFallbackIframe';
+  iframe.src = url;
+  iframe.allowFullscreen = true;
+  iframe.allow = 'fullscreen; autoplay';
+  iframe.style.cssText = 'width:100%;height:100%;border:none;position:absolute;top:0;left:0;z-index:10;background:#000';
+
+  // Auto-cycle to next source if this one fails
+  iframe.onerror = function() {
+    dbg('Source ' + sourceIndex + ' failed, trying next...', 'warn');
+    showStreamIframe(imdbId, type, season, episode, sourceIndex + 1);
+  };
+
+  vid.style.display = 'none';
+  vid.parentNode.style.position = 'relative';
+  vid.parentNode.style.height = '480px';
+  vid.parentNode.appendChild(iframe);
+
+  _streamIframeActive = true;
+  if(sourceIndex === 0) toast('Playing from backup source', 'ok');
+  dbg('StreamIMDB fallback [' + sourceIndex + ']: ' + url, 'warn');
+}
+
+function clearStreamIframe() {
+  const iframe = gel('streamFallbackIframe');
+  if(iframe) iframe.remove();
+  const mv = gel('mvVid');
+  const sv = gel('svVid');
+  if(mv) mv.style.display = '';
+  if(sv) sv.style.display = '';
+  _streamIframeActive = false;
+}
+
+async function tryStreamIMDBFallback(errId, itemName, type) {
+  if(errId === 'liveErr') return false;
+  const tmdbType = type === 'movie' ? 'movie' : 'tv';
+  const meta = await fetchTMDB(itemName, tmdbType);
+  if(!meta || !meta.imdbId) return false;
+  dbg('Trying StreamIMDB fallback for ' + meta.imdbId, 'warn');
+  showStreamIframe(meta.imdbId, type);
+  return true;
+}
+
 // ── Stream Auto-Failover ──────────────────────────────────────────────────────
 let _failoverUsed = new Set();
 function tryFailover(errId) {
@@ -1882,6 +1974,19 @@ function tryFailover(errId) {
 
 function showErr(id,msg){
   if(tryFailover(id)) return;
+  // Try StreamIMDB fallback for movie/series
+  if(id === 'mvErr' && _lastPlayedItem && _lastPlayedItem.type === 'movie'){
+    tryStreamIMDBFallback(id, _lastPlayedItem.name, 'movie').then(function(ok){
+      if(!ok){ const e=gel(id);if(e){e.textContent=msg;e.classList.add('show');} }
+    });
+    return;
+  }
+  if(id === 'svErr' && _lastPlayedItem && _lastPlayedItem.type === 'series'){
+    tryStreamIMDBFallback(id, _lastPlayedItem.name, 'tv').then(function(ok){
+      if(!ok){ const e=gel(id);if(e){e.textContent=msg;e.classList.add('show');} }
+    });
+    return;
+  }
   const e=gel(id);if(e){e.textContent=msg;e.classList.add('show');}dbg('Stream error: '+msg,'err');
 }
 
