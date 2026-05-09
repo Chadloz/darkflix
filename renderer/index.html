@@ -130,6 +130,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
 .play-arrow{font-size:16px;color:var(--accent);flex-shrink:0;}
 .inline-player{display:none;flex-shrink:0;}
 .inline-player.show{display:block;}
+.inline-player.show ~ .grid-wrap{display:none;}
 .inline-player video{width:100%;max-height:50vh;display:block;background:#000;}
 .inline-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--s1);border-bottom:1px solid var(--border);flex-wrap:wrap;}
 .inline-title{font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
@@ -1254,19 +1255,120 @@ function fallbackEpList(show){
   return html;
 }
 
+async function loadStalkerEps(show){
+  const tgt=gel('svEps');
+  const acct=S.accounts.find(function(a){return a.id===show.acctId&&a.type==='stalker';});
+  if(!acct||!show.stalkerSeriesId)return false;
+  try{
+    const nmac=(acct.mac||'').replace(/[^0-9A-F]/gi,'');
+    const fmac=nmac.length===12?nmac.match(/.{2}/g).join(':'):acct.mac;
+    const hd={
+      'User-Agent':'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
+      'X-User-Agent':'Model: MAG250; Link: Ethernet',
+      'Cookie':'PHPSESSID=null; sn=000000000000; mac='+fmac+'; stb_lang=en; timezone=America/New_York'
+    };
+    const hs=await fetchJSON(acct.stkBase+'?type=stb&action=handshake&prehash=0&token=&JsHttpRequest=1-xml',hd);
+    const tk=hs&&hs.js&&hs.js.token;
+    if(!tk)return false;
+    hd['Authorization']='Bearer '+tk;
+    
+    // Get all episodes for this series
+    let allEps=[],pg=1,tp=1;
+    do{
+      const r=await fetchJSON(acct.stkBase+'?type=vod&action=get_ordered_list&movie_id='+show.stalkerSeriesId+'&season_id=0&episode_id=0&p='+pg+'&JsHttpRequest=1-xml',hd);
+      if(r&&r.js&&r.js.data&&Array.isArray(r.js.data)&&r.js.data.length>0){
+        r.js.data.forEach(function(ep){allEps.push(ep);});
+        const total=parseInt(r.js.total_items)||0;
+        const perPage=parseInt(r.js.max_page_items)||14;
+        tp=total>0?Math.ceil(total/perPage):pg;
+      }else break;
+      pg++;
+    }while(pg<=tp&&pg<=20);
+    
+    if(!allEps.length)return false;
+    
+    let html='';
+    // Group by season
+    const bySeason={};
+    allEps.forEach(function(ep){
+      const sn=(ep.season_number||ep.season||'1');
+      if(!bySeason[sn])bySeason[sn]=[];
+      bySeason[sn].push(ep);
+    });
+    const seasons=Object.keys(bySeason).sort(function(a,b){return parseInt(a)-parseInt(b);});
+    for(const sn of seasons){
+      html+='<div style="margin-top:10px"><div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px">Season '+sn+'</div>';
+      bySeason[sn].forEach(function(ep){
+        const epCmd=ep.cmd||ep.id||'';
+        const epNum=ep.episode_number||ep.number||'';
+        const title=E(ep.name||'Episode '+epNum);
+        const safeTitle=title.replace(/'/g,"\\'");
+        const safeCmd=String(epCmd).replace(/'/g,"\\'");
+        html+='<div class="grid-item" style="padding:8px 12px" onclick="playStalkerEp(\''+show.acctId+'\',\''+safeCmd+'\',\''+safeTitle+'\')">'
+          +'<div style="width:28px;text-align:center;font-family:JetBrains Mono,monospace;font-size:11px;color:var(--dim)">'+epNum+'</div>'
+          +'<div class="g-info"><div class="g-name">'+title+'</div></div>'
+          +'<span class="play-arrow">▶</span></div>';
+      });
+      html+='</div>';
+    }
+    tgt.innerHTML=html;
+    return true;
+  }catch(e){dbg('Stalker series eps failed: '+e.message,'warn');return false;}
+}
+
+window.playStalkerEp=async function(acctId,cmd,title){
+  const acct=S.accounts.find(function(a){return a.id===acctId&&a.type==='stalker';});
+  if(!acct)return;
+  try{
+    const nmac=(acct.mac||'').replace(/[^0-9A-F]/gi,'');
+    const fmac=nmac.length===12?nmac.match(/.{2}/g).join(':'):acct.mac;
+    const hd={
+      'User-Agent':'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
+      'X-User-Agent':'Model: MAG250; Link: Ethernet',
+      'Cookie':'PHPSESSID=null; sn=000000000000; mac='+fmac+'; stb_lang=en; timezone=America/New_York'
+    };
+    const hs=await fetchJSON(acct.stkBase+'?type=stb&action=handshake&prehash=0&token=&JsHttpRequest=1-xml',hd);
+    const tk=hs&&hs.js&&hs.js.token;
+    if(!tk)throw new Error('No token');
+    hd['Authorization']='Bearer '+tk;
+    const cl=await fetchJSON(acct.stkBase+'?type=vod&action=create_link&cmd='+encodeURIComponent(cmd)+'&series=&forced_storage=undefined&disable_ad=0&download=0&force_ch_link_check=0&JsHttpRequest=1-xml',hd);
+    if(cl&&cl.js&&cl.js.cmd){
+      var cmd=cl.js.cmd,realUrl=cmd;
+      if(cmd.startsWith('ffmpeg '))realUrl=cmd.replace('ffmpeg ','');
+      else{var m=cmd.match(/(https?:\/\/[^\s]+)/);if(m)realUrl=m[1];}
+      loadStream(gel('svVid'),realUrl,'svErr');
+      gel('svTitle').textContent=title;
+    }else throw new Error('No stream URL');
+  }catch(e){showErr('svErr','Stalker episode failed: '+e.message);}
+};
+
 async function loadEps(show){
-  const tgt=gel('svEps');tgt.innerHTML='<div style="color:var(--accent)">Loading episodes...</div>';
+  const tgt=gel('svEps');tgt.style.maxHeight='400px';tgt.style.overflowY='auto';tgt.innerHTML='<div style="color:var(--accent)">Loading episodes...</div>';
+  
+  // Try Stalker series API first
+  if(show.isStalkerSeries){
+    const ok=await loadStalkerEps(show);
+    if(ok)return;
+    const fb=fallbackEpList(show);
+    if(fb){tgt.innerHTML=fb;return;}
+    tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';
+    tryStreamIMDBForSeries(show);
+    return;
+  }
+  
   const acct=S.accounts.find(function(a){return a.id===show.acctId&&a.type==='xtream';});
   if(!acct||!show.seriesId){
     const fb=fallbackEpList(show);
-    tgt.innerHTML=fb||'<div class="ib">No episodes found.</div>';
+    if(fb){tgt.innerHTML=fb;return;}
+    tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';
+    tryStreamIMDBForSeries(show);
     return;
   }
   try{
     const b=acct.server+'/player_api.php?username='+encodeURIComponent(acct.user)+'&password='+encodeURIComponent(acct.pass);
     const r=await fetchJSON(b+'&action=get_series_info&series_id='+show.seriesId);
     const epsCount=r&&r.episodes?Object.keys(r.episodes).length:0;
-    if(!r||!r.episodes||epsCount===0){const fb=fallbackEpList(show);tgt.innerHTML=fb||'<div class="ib">No episodes found.</div>';return;}
+    if(!r||!r.episodes||epsCount===0){const fb=fallbackEpList(show);if(fb){tgt.innerHTML=fb;return;}tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';tryStreamIMDBForSeries(show);return;}
     let html='';
     const seasons=Object.keys(r.episodes).sort(function(a,b){return parseInt(a)-parseInt(b);});
     for(const sn of seasons){
@@ -1282,7 +1384,53 @@ async function loadEps(show){
       html+='</div>';
     }
     tgt.innerHTML=html;
-  }catch(e){tgt.innerHTML='<div class="ib">Error: '+E(e.message)+'</div>';}
+  }catch(e){const fb=fallbackEpList(show);if(fb){tgt.innerHTML=fb;return;}tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';tryStreamIMDBForSeries(show);}
+}
+
+
+
+async function tryStreamIMDBForSeries(show){
+  try{
+    const meta=await fetchTMDB(show.name,'tv');
+    if(!meta||!meta.imdbId){dbg('No IMDB ID found for '+show.name,'warn');return;}
+    dbg('No episodes — trying StreamIMDB for '+show.name+' ('+meta.imdbId+')','ok');
+    showStreamIframe(meta.imdbId,'tv',1,1,0);
+    gel('svTitle').textContent=show.name+' (Backup Source)';
+    toast('Playing from backup source','ok');
+    // Fetch full season/episode data from TMDB to build episode list
+    if(meta.tmdbId){
+      try{
+        const tdr=await fetch('https://api.themoviedb.org/3/tv/'+meta.tmdbId+'?api_token=replace_with_real',{
+          headers:{'Authorization':'Bearer '+TMDB_TOKEN,'Content-Type':'application/json;charset=utf-8'}
+        });
+        const tvData=await tdr.json();
+        if(tvData&&tvData.seasons&&tvData.seasons.length){
+          const tgt=gel('svEps');
+          let html='';
+          for(const s of tvData.seasons){
+            if(s.season_number===0)continue; // skip specials
+            const sdr=await fetch('https://api.themoviedb.org/3/tv/'+meta.tmdbId+'/season/'+s.season_number,{
+              headers:{'Authorization':'Bearer '+TMDB_TOKEN,'Content-Type':'application/json;charset=utf-8'}
+            });
+            const sdata=await sdr.json();
+            if(sdata&&sdata.episodes&&sdata.episodes.length){
+              html+='<div style="margin-top:10px"><div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px">Season '+s.season_number+'</div>';
+              sdata.episodes.forEach(function(ep){
+                const title=E(ep.name||'Episode '+ep.episode_number);
+                const safeTitle=title.replace(/'/g,"\\'");
+                html+='<div class="grid-item" style="padding:8px 12px" onclick="showStreamIframe(\''+meta.imdbId+'\',\'tv\','+s.season_number+','+ep.episode_number+',0);gel(\'svTitle\').textContent=\''+safeTitle+' (Backup)\'">'
+                  +'<div style="width:28px;text-align:center;font-family:JetBrains Mono,monospace;font-size:11px;color:var(--dim)">'+ep.episode_number+'</div>'
+                  +'<div class="g-info"><div class="g-name">'+title+'</div></div>'
+                  +'<span class="play-arrow">▶</span></div>';
+              });
+              html+='</div>';
+            }
+          }
+          if(html)tgt.innerHTML=html;
+        }
+      }catch(e){dbg('TMDB episode fetch failed: '+e.message,'warn');}
+    }
+  }catch(e){dbg('StreamIMDB lookup failed: '+e.message,'warn');}
 }
 
 // ── Favorites ─────────────────────────────────────────────────────────────────
@@ -1719,7 +1867,58 @@ async function connectAcct(){
       if(!all.length)throw new Error('No channels found');
       all.forEach(function(c){c.acctId=aid;});
       S.live=S.live.concat(all);
-      S.accounts.push({id:aid,type:'stalker',name:nm,url:url,mac:fmac,stkBase:base,liveCount:all.length,vodCount:0,seriesCount:0});
+      
+      // Load Stalker VOD (movies)
+      let vodList=[];
+      try{
+        setSt('aaSt','Loading VOD categories...','loading');
+        const vc=await fetchJSON(base+'?type=vod&action=get_categories&JsHttpRequest=1-xml',hd);
+        const vcm={};if(vc&&vc.js&&Array.isArray(vc.js))vc.js.forEach(function(c){vcm[c.id]=c.title;});
+        setSt('aaSt','Loading movies...','loading');
+        let vpg=1,vtp=1;
+        do{
+          const vr=await fetchJSON(base+'?type=vod&action=get_ordered_list&category=*&p='+vpg+'&JsHttpRequest=1-xml',hd);
+          if(vr&&vr.js&&vr.js.data&&Array.isArray(vr.js.data)&&vr.js.data.length>0){
+            vr.js.data.forEach(function(m){
+              vodList.push({id:U(),acctId:aid,name:m.name||'?',url:'',cmd:m.cmd||'',group:vcm[m.category_id]||'',logo:m.screenshot_uri||'',rating:m.rating_imdb||'',year:m.year||'',vodId:m.id||'',isStalkerVod:true});
+            });
+            const total=parseInt(vr.js.total_items)||0;
+            const perPage=parseInt(vr.js.max_page_items)||14;
+            vtp=total>0?Math.ceil(total/perPage):vpg;
+            dbg('Stalker VOD page '+vpg+'/'+vtp+' loaded '+vr.js.data.length);
+          }else break;
+          vpg++;
+        }while(vpg<=vtp&&vpg<=50);
+        S.movies=S.movies.concat(vodList);
+        dbg('Stalker VOD: '+vodList.length+' movies','ok');
+      }catch(e){dbg('Stalker VOD failed: '+e.message,'warn');}
+      
+      // Load Stalker series
+      let serList=[];
+      try{
+        setSt('aaSt','Loading series categories...','loading');
+        const sc=await fetchJSON(base+'?type=series&action=get_categories&JsHttpRequest=1-xml',hd);
+        const scm={};if(sc&&sc.js&&Array.isArray(sc.js))sc.js.forEach(function(c){scm[c.id]=c.title;});
+        setSt('aaSt','Loading series...','loading');
+        let spg=1,stp=1;
+        do{
+          const sr=await fetchJSON(base+'?type=series&action=get_ordered_list&category=*&p='+spg+'&JsHttpRequest=1-xml',hd);
+          if(sr&&sr.js&&sr.js.data&&Array.isArray(sr.js.data)&&sr.js.data.length>0){
+            sr.js.data.forEach(function(s){
+              serList.push({id:U(),acctId:aid,name:s.name||'?',url:'',group:scm[s.category_id]||'',logo:s.screenshot_uri||'',rating:s.rating_imdb||'',year:s.year||'',stalkerSeriesId:s.id||'',isStalkerSeries:true});
+            });
+            const total=parseInt(sr.js.total_items)||0;
+            const perPage=parseInt(sr.js.max_page_items)||14;
+            stp=total>0?Math.ceil(total/perPage):spg;
+            dbg('Stalker series page '+spg+'/'+stp+' loaded '+sr.js.data.length);
+          }else break;
+          spg++;
+        }while(spg<=stp&&spg<=50);
+        S.series=S.series.concat(serList);
+        dbg('Stalker series: '+serList.length+' shows','ok');
+      }catch(e){dbg('Stalker series failed: '+e.message,'warn');}
+      
+      S.accounts.push({id:aid,type:'stalker',name:nm,url:url,mac:fmac,stkBase:base,liveCount:all.length,vodCount:vodList.length,seriesCount:serList.length});
       await saveAll();updateBadges();
       setSt('aaSt','✅ '+all.length+' channels loaded!','ok');
       setTimeout(function(){closeModal('mAA');},1500);nav('accounts');
@@ -1941,7 +2140,8 @@ function showStreamIframe(imdbId, type, season, episode, sourceIndex) {
   iframe.src = url;
   iframe.allowFullscreen = true;
   iframe.allow = 'fullscreen; autoplay';
-  iframe.style.cssText = 'width:100%;height:100%;border:none;position:absolute;top:0;left:0;z-index:10;background:#000';
+  iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-presentation';
+  iframe.style.cssText = 'width:100%;height:480px;border:none;display:block;background:#000';
 
   // Auto-cycle to next source if this one fails
   iframe.onerror = function() {
@@ -1950,9 +2150,8 @@ function showStreamIframe(imdbId, type, season, episode, sourceIndex) {
   };
 
   vid.style.display = 'none';
-  vid.parentNode.style.position = 'relative';
-  vid.parentNode.style.height = '480px';
-  vid.parentNode.appendChild(iframe);
+  // Insert iframe right after the video element, so inline-bar stays below
+  vid.parentNode.insertBefore(iframe, vid.nextSibling);
 
   _streamIframeActive = true;
   if(sourceIndex === 0) toast('Playing from backup source', 'ok');

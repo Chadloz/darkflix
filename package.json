@@ -1,6 +1,6 @@
 {
   "name": "black-mango-desktop",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -31,7 +31,9 @@
     "files": [
       "main.js",
       "preload.js",
-      "renderer/**/*"
+      "renderer/**/*",
+      "node_modules/**/*",
+      "package.json"
     ],
     "mac": {
       "target": [
