@@ -131,6 +131,12 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
 .inline-player{display:none;flex-shrink:0;}
 .inline-player.show{display:block;}
 .inline-player.show ~ .grid-wrap{display:none;}
+.kbd-sel{outline:2px solid var(--accent)!important;outline-offset:-2px;background:rgba(255,140,0,0.08)!important;}
+.iframe-pip{position:fixed;right:20px;bottom:20px;width:360px;height:202px;background:#000;border:2px solid var(--accent);border-radius:8px;overflow:hidden;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.5);}
+.iframe-pip iframe{width:100%;height:100%;border:none;}
+.iframe-pip .pip-bar{position:absolute;top:0;left:0;right:0;height:24px;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px;color:#fff;cursor:move;user-select:none;}
+.iframe-pip .pip-close{cursor:pointer;background:none;border:none;color:#fff;font-size:14px;padding:0 4px;line-height:1;}
+.iframe-pip .pip-expand{cursor:pointer;background:none;border:none;color:#fff;font-size:14px;padding:0 4px;line-height:1;}
 .inline-player video{width:100%;max-height:50vh;display:block;background:#000;}
 .inline-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--s1);border-bottom:1px solid var(--border);flex-wrap:wrap;}
 .inline-title{font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
@@ -401,6 +407,9 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <div id="dbgBox" style="display:none;margin-top:8px">
         <div id="dbgLog" style="background:#000;color:#0f0;font-family:monospace;font-size:10px;padding:8px;border-radius:6px;max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></div>
       </div>
+    </div>
+    <div class="sg"><h3>Streams</h3>
+      <div class="sr"><div class="sl" style="flex-direction:column;align-items:flex-start;gap:4px"><div>Dead stream cache</div><div style="font-size:11px;color:var(--dim2)" id="deadCacheStatus">Failed streams auto-skip for 24 hours.</div></div><button class="btn sm" onclick="clearDeadStreamCache()">Clear Cache</button></div>
     </div>
     <div class="sg"><h3>Updates</h3>
       <div class="sr"><div class="sl" style="flex-direction:column;align-items:flex-start;gap:4px"><div>Check for app updates</div><div style="font-size:11px;color:var(--dim2)" id="updateStatus">Check for the latest version of Black Mango.</div></div><button class="btn sm" id="updateBtn" onclick="checkForUpdates()">Check for Updates</button></div>
@@ -839,13 +848,23 @@ function nav(v,isBack){
   var goingToVideo=(v==='live'||v==='movies'||v==='series');
   var av=getActiveVid();
   var sourceView=CV;
-  if(leavingVideo&&av&&!_pipExpanding&&(!goingToVideo||(goingToVideo&&v!==CV))){
-    if(document.pictureInPictureEnabled&&!document.pictureInPictureElement){
+  if(leavingVideo&&!_pipExpanding&&(!goingToVideo||(goingToVideo&&v!==CV))){
+    // Native PiP for regular video element
+    if(av&&document.pictureInPictureEnabled&&!document.pictureInPictureElement){
       av.requestPictureInPicture().then(function(){
         _pipSource={view:sourceView,vidId:av.id};
         dbg('PiP started from '+sourceView,'ok');
       }).catch(function(e){dbg('PiP failed: '+e.message,'warn');});
     }
+    // Pseudo-PiP for backup-source iframe
+    const iframe=gel('streamFallbackIframe');
+    if(iframe&&!gel('iframePipWrap')){
+      moveStreamIframeToPip(iframe);
+    }
+  }
+  // Returning to a video view — close pseudo-PiP (we're about to play something new)
+  if(goingToVideo&&gel('iframePipWrap')){
+    closeIframePip();
   }
 
   CV=v;
@@ -874,7 +893,7 @@ function renderHome(){
   if(S.accounts.length){
     gel('homeSub').innerHTML=S.accounts.map(a=>'<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:var(--gd);color:var(--green);font-size:11px;font-weight:600;margin-right:4px">'+E(a.name||'?')+'</span>').join('')+' <span style="color:var(--dim2);font-size:11px">v1.0.5</span>';
   }else gel('homeSub').textContent='Add an account to get started.';
-  const mkCard=function(c,type){const ini=E(c.name.slice(0,2));return '<div class="card" onclick="if(!this._busy){this._busy=true;setTimeout(function(el){el._busy=false;},1000,this);playItem(\''+c.id+'\',\''+type+'\')}"><div class="card-img">'+(c.logo?'<img src="'+E(c.logo)+'" onerror="this.outerHTML=\'<div class=card-ini>'+ini+'</div>\'">'  :'<div class="card-ini">'+ini+'</div>')+'</div><div class="card-body"><div class="card-name">'+E(c.name)+'</div><div class="card-sub">'+E(c.group||type)+'</div></div></div>';};
+  const mkCard=function(c,type){const ini=E(c.name.slice(0,2));return '<div class="card" onclick="if(!this._busy){this._busy=true;setTimeout(function(el){el._busy=false;},1000,this);playItem(\''+c.id+'\',\''+type+'\')}"><div class="card-img">'+safeLogo(c.logo,'<div class="card-ini">'+ini+'</div>')+'</div><div class="card-body"><div class="card-name">'+E(c.name)+'</div><div class="card-sub">'+E(c.group||type)+'</div></div></div>';};
   const sec=function(sid,lid,arr,type){if(arr.length){gel(sid).style.display='';gel(lid).innerHTML=arr.slice(0,20).map(function(c){return mkCard(c,type);}).join('');}else gel(sid).style.display='none';};
   if(S.recents.length){gel('hRecent').style.display='';gel('hRecentList').innerHTML=S.recents.slice(0,15).map(function(r){return mkCard(r,r.type);}).join('');}else gel('hRecent').style.display='none';
   sec('hLive','hLiveList',S.live,'live');sec('hMovies','hMovieList',S.movies,'movie');sec('hSeries','hSeriesList',S.series,'series');
@@ -892,6 +911,64 @@ function popAcctSel(selId,list){
 }
 
 // ── Live TV ───────────────────────────────────────────────────────────────────
+// Track dead stream URLs and offline domains with timestamps (24hr expiry)
+const _DEAD_TTL_MS=24*60*60*1000; // 24 hours
+let _deadStreams={}; // url -> timestamp
+let _deadDomains={}; // hostname -> timestamp
+try{
+  const s=localStorage.getItem('_deadStreams');if(s)_deadStreams=JSON.parse(s);
+  const d=localStorage.getItem('_deadDomains');if(d)_deadDomains=JSON.parse(d);
+  // Migrate old array format to new map format
+  if(Array.isArray(_deadStreams)){const m={};_deadStreams.forEach(function(u){m[u]=Date.now();});_deadStreams=m;}
+  if(Array.isArray(_deadDomains)){const m={};_deadDomains.forEach(function(u){m[u]=Date.now();});_deadDomains=m;}
+}catch(e){_deadStreams={};_deadDomains={};}
+function _saveDeadStreams(){try{localStorage.setItem('_deadStreams',JSON.stringify(_deadStreams));}catch(e){}}
+function _saveDeadDomains(){try{localStorage.setItem('_deadDomains',JSON.stringify(_deadDomains));}catch(e){}}
+function markDeadStream(url){
+  if(!url)return;
+  const now=Date.now();
+  _deadStreams[url]=now;_saveDeadStreams();
+  try{const h=new URL(url).hostname;if(h){_deadDomains[h]=now;_saveDeadDomains();}}catch(e){}
+}
+function isDeadStream(url){
+  if(!url)return false;
+  const now=Date.now();
+  const t1=_deadStreams[url];
+  if(t1&&(now-t1<_DEAD_TTL_MS))return true;
+  if(t1)delete _deadStreams[url]; // expired
+  try{
+    const h=new URL(url).hostname;
+    const t2=_deadDomains[h];
+    if(t2&&(now-t2<_DEAD_TTL_MS))return true;
+    if(t2)delete _deadDomains[h]; // expired
+  }catch(e){}
+  return false;
+}
+function clearDeadStreamCache(){
+  _deadStreams={};_deadDomains={};
+  _saveDeadStreams();_saveDeadDomains();
+  toast('Dead stream cache cleared','ok');
+}
+
+// Track dead logo URLs to avoid retry spam
+const _brokenLogos=new Set();
+function markLogoBroken(url){_brokenLogos.add(url);}
+function isLogoBroken(url){return _brokenLogos.has(url);}
+// Stash fallback HTML in a global keyed by URL — avoids the quote-escape mess
+const _logoFallbacks={};
+function safeLogo(url,ini){
+  if(!url||isLogoBroken(url))return ini;
+  _logoFallbacks[url]=ini;
+  return '<img src="'+E(url)+'" data-fburl="'+E(url)+'" class="safe-logo">';
+}
+// Delegated error handler for all safe-logo images
+document.addEventListener('error',function(e){
+  const t=e.target;
+  if(!t||t.tagName!=='IMG'||!t.classList.contains('safe-logo'))return;
+  const u=t.getAttribute('data-fburl');
+  if(u){markLogoBroken(u);if(_logoFallbacks[u]){t.outerHTML=_logoFallbacks[u];}}
+},true);
+
 let _liveList=[];
 let _liveShown=0;
 const _LIVE_BATCH=60;
@@ -900,7 +977,7 @@ function mkChRow(c,i){
   const ini=E(c.name.slice(0,2)),isA=c.id===activeChId,isFav=S.favorites.has(c.id);
   return '<div class="ch-item '+(isA?'active':'')+'" onclick="playChannel(\''+c.id+'\')">'
     +(S.settings.chNums?'<div class="ch-num">'+(i+1)+'</div>':'')
-    +'<div class="ch-logo">'+(c.logo?'<img src="'+E(c.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
+    +'<div class="ch-logo">'+safeLogo(c.logo,ini)+'</div>'
     +'<div class="ch-info"><div class="ch-name">'+E(c.name)+'</div><div class="ch-group">'+E(c.group||'')+(S.accounts.length>1?' <span style="color:var(--accent);font-size:10px;font-weight:600">'+E((S.accounts.find(function(a){return a.id===c.acctId;})||{name:''}).name)+'</span>':'')+'</div></div>'
     +(isA?'<span class="ch-live" style="background:var(--accent);color:#000;font-size:9px;padding:2px 6px;border-radius:4px;font-weight:700;font-family:monospace">👁 Watching</span>':'')
     +'<div class="fav-btn '+(isFav?'on':'')+'" onclick="event.stopPropagation();tFav(\''+c.id+'\')">'+(isFav?'★':'☆')+'</div>'
@@ -988,6 +1065,7 @@ function playChannel(id){
   var vid=gel('liveVid');
   if(vid._liveReconnect){vid.removeEventListener('ended',vid._liveReconnect);vid._liveReconnect=null;}
   if(document.pictureInPictureElement){_pipSource=null;document.exitPictureInPicture().catch(function(){});}
+  if(gel('iframePipWrap'))closeIframePip();
   var acct=S.accounts.find(function(a){return a.id===ch.acctId;});
   var doPlay=function(url){
     loadStream(vid,url,'liveErr');
@@ -1154,8 +1232,10 @@ function renderGrid(listId,list,type){
 }
 
 window.playItem=function(id,type){
-  clearStreamIframe();
+  clearStreamIframe(true);
+  stopAllVideo();
   if(document.pictureInPictureElement){_pipSource=null;document.exitPictureInPicture().catch(function(){});}
+  if(gel('iframePipWrap'))closeIframePip();
   if(type==='live'){nav('live');setTimeout(function(){playChannel(id);},50);return;}
   if(type==='movie'&&CV!=='movies'){nav('movies');setTimeout(function(){window.playItem(id,type);},50);return;}
   if(type==='series'&&CV!=='series'){nav('series');setTimeout(function(){window.playItem(id,type);},50);return;}
@@ -1226,6 +1306,9 @@ function closeInline(p){
   const player=gel(p+'Player');if(player)player.classList.remove('show');
   const vid=gel(p+'Vid');if(vid){vid.pause();vid.removeAttribute('src');vid.load();}
   if(hls){hls.destroy();hls=null;}
+  // Also kill the backup-source iframe and any pseudo-PiP
+  clearStreamIframe(true);
+  if(typeof closeIframePip==='function'&&gel('iframePipWrap'))closeIframePip();
 }
 function fsInline(vidId){const v=gel(vidId);if(!v)return;if(v.requestFullscreen)v.requestFullscreen();else if(v.webkitRequestFullscreen)v.webkitRequestFullscreen();}
 function toggleFavInline(p){if(!activeItemId)return;tFav(activeItemId);gel(p+'FavBtn').textContent=S.favorites.has(activeItemId)?'★':'☆';}
@@ -1433,6 +1516,267 @@ async function tryStreamIMDBForSeries(show){
   }catch(e){dbg('StreamIMDB lookup failed: '+e.message,'warn');}
 }
 
+
+// ── Keyboard Hotkeys ──────────────────────────────────────────────────────────
+let _lastView = null;
+let _selIdx = -1;
+
+function getActiveVideo(){
+  if(gel('mvPlayer')&&gel('mvPlayer').classList.contains('show'))return gel('mvVid');
+  if(gel('svPlayer')&&gel('svPlayer').classList.contains('show'))return gel('svVid');
+  if(CV==='live')return gel('liveVid');
+  return null;
+}
+
+function syncVolUI(v){
+  const slider=document.getElementById('volRange');
+  if(slider){slider.value=v.muted?0:Math.round(v.volume*100);}
+}
+
+function getGridItems(){
+  // Find the currently visible grid items based on the active view
+  const viewMap={live:'#vLive',movies:'#vMovies',series:'#vSeries',favorites:'#vFavorites'};
+  const sel=viewMap[CV];
+  if(!sel)return[];
+  const view=document.querySelector(sel);
+  if(!view||view.style.display==='none')return[];
+  return Array.from(view.querySelectorAll('.grid-item, .fav-item, .ch-item'));
+}
+
+function clearSelHighlight(){
+  document.querySelectorAll('.kbd-sel').forEach(function(el){el.classList.remove('kbd-sel');});
+}
+
+let _lastKbdActivity=0;
+function highlightSel(){
+  clearSelHighlight();
+  const items=getGridItems();
+  if(_selIdx<0||_selIdx>=items.length)return;
+  const el=items[_selIdx];
+  el.classList.add('kbd-sel');
+  _lastKbdActivity=Date.now();
+  el.scrollIntoView({block:'center',behavior:'smooth'});
+}
+
+// Sync keyboard selection when user clicks a grid item with the mouse
+document.addEventListener('click',function(e){
+  const item=e.target.closest('.grid-item, .fav-item, .ch-item');
+  if(!item)return;
+  const items=getGridItems();
+  const idx=items.indexOf(item);
+  if(idx>=0){
+    _selIdx=idx;
+    const id=getItemId(item);
+    if(id){_selByView[CV]=id;_saveSelByView();}
+  }
+});
+
+// Sync keyboard selection to scroll position — when user scrolls, snap _selIdx
+// to the first item currently visible in the viewport
+let _scrollSyncTimer=null;
+document.addEventListener('scroll',function(e){
+  if(_scrollSyncTimer)clearTimeout(_scrollSyncTimer);
+  _scrollSyncTimer=setTimeout(function(){
+    // Skip if keyboard was active recently — assume user is mid-navigation
+    if(Date.now()-_lastKbdActivity<1500)return;
+    const items=getGridItems();
+    if(!items.length)return;
+    for(let i=0;i<items.length;i++){
+      const r=items[i].getBoundingClientRect();
+      if(r.bottom>0&&r.top<window.innerHeight){
+        _selIdx=i;
+        break;
+      }
+    }
+  },300);
+},true);
+
+function ensureItemRendered(targetId){
+  // For Live view: lazy-load more rows if needed until target ID is in the DOM
+  if(CV!=='live'||!targetId)return;
+  const fullIdx=_liveList.findIndex(function(c){return c.id===targetId;});
+  if(fullIdx<0)return;
+  if(fullIdx>=_liveShown){
+    appendLiveRows(_liveShown,Math.min(fullIdx+20,_liveList.length));
+  }
+}
+
+function moveSel(dir){
+  // If no current selection but we have a saved one, ensure it's rendered first
+  if(_selIdx<0){
+    const savedId=_selByView[CV];
+    if(savedId)ensureItemRendered(savedId);
+  }
+  const items=getGridItems();
+  if(!items.length){_selIdx=-1;return;}
+  if(_selIdx<0){
+    // First try the saved ID from previous session/nav
+    const savedId=_selByView[CV];
+    if(savedId){
+      const savedIdx=items.findIndex(function(el){return getItemId(el)===savedId;});
+      if(savedIdx>=0){_selIdx=savedIdx;highlightSel();return;}
+    }
+    // Fall back to the .active (last-watched) item
+    const activeIdx=items.findIndex(function(el){return el.classList.contains('active');});
+    if(activeIdx>=0)_selIdx=activeIdx;
+    else{
+      // Final fallback: also check if activeChId is in the list but not yet rendered
+      if(CV==='live'&&activeChId){
+        ensureItemRendered(activeChId);
+        const items2=getGridItems();
+        const aidx=items2.findIndex(function(el){return el.classList.contains('active');});
+        if(aidx>=0){_selIdx=aidx;highlightSel();return;}
+      }
+      _selIdx=0;
+    }
+  }else{
+    _selIdx=Math.max(0,Math.min(items.length-1,_selIdx+dir));
+  }
+  // Save selection by ID so it persists across reloads
+  if(_selIdx>=0&&_selIdx<items.length){
+    const id=getItemId(items[_selIdx]);
+    if(id){_selByView[CV]=id;_saveSelByView();}
+  }
+  highlightSel();
+}
+
+// Save selection per view and restore on return (persisted to localStorage)
+let _selByView={};
+try{const _s=localStorage.getItem('_selByView');if(_s)_selByView=JSON.parse(_s);}catch(e){}
+function _saveSelByView(){try{localStorage.setItem('_selByView',JSON.stringify(_selByView));}catch(e){}}
+const _origNav2=window.nav;
+window.nav=function(v){
+  if(CV!==v&&CV){
+    // Save the current selection's data attribute (id) so it persists across re-renders
+    const items=getGridItems();
+    if(_selIdx>=0&&_selIdx<items.length){
+      _selByView[CV]=getItemId(items[_selIdx]);
+    }else _selByView[CV]=null;
+    _saveSelByView();
+    clearSelHighlight();
+  }
+  const result=_origNav2(v);
+  setTimeout(function(){
+    const savedId=_selByView[v];
+    if(!savedId){_selIdx=-1;return;}
+    if(v==='live'&&typeof ensureItemRendered==='function')ensureItemRendered(savedId);
+    const items=getGridItems();
+    const idx=items.findIndex(function(el){return getItemId(el)===savedId;});
+    if(idx>=0){
+      _selIdx=idx;
+      _lastKbdActivity=Date.now();
+      items[idx].scrollIntoView({block:'center',behavior:'auto'});
+    }
+    else _selIdx=-1;
+  },200);
+  return result;
+};
+
+// Strict extraction: pull the ID from the play handler (playChannel/playItem) onclick.
+// The element's main onclick is a play call. The fav button is a separate element inside,
+// so reading the element's own onclick attribute (not innerHTML) gives us the play handler only.
+function getItemId(el){
+  const oc=el.getAttribute('onclick')||'';
+  // Match playChannel('id') or playItem('id','type')
+  const m=oc.match(/play(?:Channel|Item)\('([^']+)'/);
+  return m?m[1]:null;
+}
+
+document.addEventListener('keydown',function(e){
+  const tag=(e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'||e.target.isContentEditable)return;
+  if(document.querySelector('.modal.show'))return;
+  
+  const v=getActiveVideo();
+  
+  // Space — play/pause
+  if(e.code==='Space'){
+    if(v){e.preventDefault();v.paused?v.play():v.pause();}
+    return;
+  }
+  
+  // Enter — play selected grid item
+  if(e.key==='Enter'){
+    const items=getGridItems();
+    if(_selIdx>=0&&_selIdx<items.length){
+      e.preventDefault();items[_selIdx].click();return;
+    }
+    const focused=document.activeElement;
+    if(focused&&focused!==document.body&&typeof focused.click==='function'){
+      e.preventDefault();focused.click();
+    }
+    return;
+  }
+  
+  // F — fullscreen
+  if(e.key==='f'||e.key==='F'){
+    if(v){
+      e.preventDefault();
+      if(document.fullscreenElement){document.exitFullscreen();}
+      else if(v.requestFullscreen){v.requestFullscreen();}
+      else if(v.webkitRequestFullscreen){v.webkitRequestFullscreen();}
+    }
+    return;
+  }
+  
+  // M — mute
+  if(e.key==='m'||e.key==='M'){
+    if(v){e.preventDefault();v.muted=!v.muted;syncVolUI(v);toast(v.muted?'Muted':'Unmuted','ok');}
+    return;
+  }
+  
+  // + / = — volume up
+  if(e.key==='+'||e.key==='='){
+    if(v){e.preventDefault();v.volume=Math.min(1,v.volume+0.05);v.muted=false;syncVolUI(v);}
+    return;
+  }
+  
+  // - — volume down
+  if(e.key==='-'){
+    if(v){e.preventDefault();v.volume=Math.max(0,v.volume-0.05);syncVolUI(v);}
+    return;
+  }
+  
+  // [ — seek back 10s
+  if(e.key==='['){
+    if(v&&!isNaN(v.duration)){e.preventDefault();v.currentTime=Math.max(0,v.currentTime-10);}
+    return;
+  }
+  
+  // ] — seek forward 10s
+  if(e.key===']'){
+    if(v&&!isNaN(v.duration)){e.preventDefault();v.currentTime=Math.min(v.duration,v.currentTime+10);}
+    return;
+  }
+  
+  // Escape — close player
+  if(e.key==='Escape'){
+    if(gel('mvPlayer')&&gel('mvPlayer').classList.contains('show')){
+      e.preventDefault();closeInline('mv');return;
+    }
+    if(gel('svPlayer')&&gel('svPlayer').classList.contains('show')){
+      e.preventDefault();closeInline('sv');return;
+    }
+    return;
+  }
+  
+  // Tab — back to last view
+  if(e.key==='Tab'&&!e.shiftKey){
+    if(_lastView&&CV!==_lastView){
+      e.preventDefault();
+      nav(_lastView);
+      toast('Back to '+_lastView,'ok');
+    }
+    return;
+  }
+  
+  // Arrow keys — navigate grid
+  if(e.key==='ArrowUp'){e.preventDefault();moveSel(-1);return;}
+  if(e.key==='ArrowDown'){e.preventDefault();moveSel(1);return;}
+  if(e.key==='ArrowLeft'){e.preventDefault();moveSel(-1);return;}
+  if(e.key==='ArrowRight'){e.preventDefault();moveSel(1);return;}
+});
+
 // ── Favorites ─────────────────────────────────────────────────────────────────
 function renderFavs(){
   const all=S.live.map(function(c){return Object.assign({},c,{type:'live'});})
@@ -1442,7 +1786,7 @@ function renderFavs(){
   gel('favList').innerHTML=all.length?all.map(function(c){
     const ini=E(c.name.slice(0,2));
     return '<div class="fav-item" onclick="playItem(\''+c.id+'\',\''+c.type+'\')">'
-      +'<div class="g-logo">'+(c.logo?'<img src="'+E(c.logo)+'" onerror="this.outerHTML=\''+ini+'\'" style="width:100%;height:100%;object-fit:cover">':ini)+'</div>'
+      +'<div class="g-logo">'+safeLogo(c.logo,ini)+'</div>'
       +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(c.name)+'</div>'
       +'<div style="font-size:11px;color:var(--dim)">'+c.type+'</div></div>'
       +'<div class="fav-btn on" onclick="event.stopPropagation();tFav(\''+c.id+'\')">★</div></div>';
@@ -1636,7 +1980,20 @@ async function deleteAcct(id){
   await saveAll();renderAccounts();updateBadges();
 }
 
-async function reloadAcct(id){
+// Sequential queue for account reloads so concurrent triggers don't hammer servers
+let _reloadQueue=Promise.resolve();
+let _reloadPending=new Set();
+function reloadAcct(id){
+  // Coalesce duplicate pending requests for the same account
+  if(_reloadPending.has(id)){dbg('Reload already queued for '+id,'warn');return _reloadQueue;}
+  _reloadPending.add(id);
+  _reloadQueue=_reloadQueue.then(function(){
+    return _reloadAcctImpl(id).finally(function(){_reloadPending.delete(id);});
+  });
+  return _reloadQueue;
+}
+
+async function _reloadAcctImpl(id){
   const a=S.accounts.find(function(x){return x.id===id;});if(!a)return;
   if(a.type==='stalker'){
     dbg('Reloading Stalker account: '+a.name,'ok');
@@ -2115,6 +2472,57 @@ const STREAM_SOURCES_TV = [
 let _streamIframeActive = false;
 let _lastPlayedItem = null;
 
+function moveStreamIframeToPip(iframe){
+  // Remove any existing pseudo-PiP
+  closeIframePip();
+  // Build the floating container
+  const wrap=document.createElement('div');
+  wrap.id='iframePipWrap';
+  wrap.className='iframe-pip';
+  wrap.innerHTML='<div class="pip-bar"><span>📺 Backup Source</span><div><button class="pip-expand" title="Expand">⛶</button><button class="pip-close" title="Close">✕</button></div></div>';
+  // Move the iframe into it
+  iframe.style.cssText='width:100%;height:100%;border:none;display:block;background:#000;margin-top:24px;height:calc(100% - 24px);';
+  wrap.appendChild(iframe);
+  document.body.appendChild(wrap);
+  // Wire up close button
+  wrap.querySelector('.pip-close').onclick=function(){closeIframePip();};
+  // Wire up expand button — bring user back to the player view
+  wrap.querySelector('.pip-expand').onclick=function(){
+    if(_lastPlayedItem&&_lastPlayedItem.type==='movie'){nav('movies');}
+    else if(_lastPlayedItem&&_lastPlayedItem.type==='series'){nav('series');}
+    setTimeout(function(){closeIframePip(true);},100);
+  };
+  // Make it draggable via the top bar
+  const bar=wrap.querySelector('.pip-bar');
+  let drag=false,offX=0,offY=0;
+  bar.addEventListener('mousedown',function(e){
+    if(e.target.tagName==='BUTTON')return;
+    drag=true;
+    const r=wrap.getBoundingClientRect();
+    offX=e.clientX-r.left;offY=e.clientY-r.top;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',function(e){
+    if(!drag)return;
+    wrap.style.left=(e.clientX-offX)+'px';
+    wrap.style.top=(e.clientY-offY)+'px';
+    wrap.style.right='auto';wrap.style.bottom='auto';
+  });
+  document.addEventListener('mouseup',function(){drag=false;});
+  dbg('Iframe moved to pseudo-PiP','ok');
+}
+
+function closeIframePip(keepIframe){
+  const wrap=gel('iframePipWrap');
+  if(!wrap)return;
+  if(!keepIframe){
+    const iframe=wrap.querySelector('iframe');
+    if(iframe)iframe.remove();
+  }
+  wrap.remove();
+  _streamIframeActive=false;
+}
+
 function showStreamIframe(imdbId, type, season, episode, sourceIndex) {
   sourceIndex = sourceIndex || 0;
   const vid = type === 'movie' ? gel('mvVid') : gel('svVid');
@@ -2158,9 +2566,16 @@ function showStreamIframe(imdbId, type, season, episode, sourceIndex) {
   dbg('StreamIMDB fallback [' + sourceIndex + ']: ' + url, 'warn');
 }
 
-function clearStreamIframe() {
+function clearStreamIframe(forceRemove) {
   const iframe = gel('streamFallbackIframe');
-  if(iframe) iframe.remove();
+  if(iframe){
+    if(forceRemove){
+      iframe.remove();
+    }else{
+      // Move iframe into a floating overlay (pseudo-PiP)
+      moveStreamIframeToPip(iframe);
+    }
+  }
   const mv = gel('mvVid');
   const sv = gel('svVid');
   if(mv) mv.style.display = '';
@@ -2202,6 +2617,10 @@ function tryFailover(errId) {
 }
 
 function showErr(id,msg){
+  // Mark this stream URL as dead (cached so we skip it on retry)
+  if(_activeStreamUrl&&(msg==='Stream unavailable'||msg==='Stream timed out'||(msg||'').indexOf('manifestLoadError')>-1||(msg||'').indexOf('Unauthorized')>-1)){
+    markDeadStream(_activeStreamUrl);
+  }
   if(tryFailover(id)) return;
   // Try StreamIMDB fallback for movie/series
   if(id === 'mvErr' && _lastPlayedItem && _lastPlayedItem.type === 'movie'){
@@ -2227,10 +2646,19 @@ function stopAllVideo(){
   if(hls){hls.destroy();hls=null;}
   if(window._shakaP){try{window._shakaP.destroy();}catch(e){}window._shakaP=null;}
   if(window._mpegtsP){try{window._mpegtsP.destroy();}catch(e){}window._mpegtsP=null;}
+  // Also stop the backup-source iframe and any pseudo-PiP
+  const iframe=gel('streamFallbackIframe');if(iframe)iframe.remove();
+  if(typeof closeIframePip==='function'&&gel('iframePipWrap'))closeIframePip();
+  _streamIframeActive=false;
 }
 function loadStream(vid,url,errId){
   _activeStreamUrl=url;
   if(!vid||!url){showErr(errId,'No URL');return;}
+  if(isDeadStream(url)){
+    dbg('Skipping known-dead stream: '+url.split('/')[2],'warn');
+    showErr(errId,'Stream unavailable (offline)');
+    return;
+  }
   dbg('loadStream: '+url.split('?')[0].split('/').slice(-2).join('/'));
   stopAllVideo();
   vid.removeAttribute('src');vid.load();
@@ -2300,14 +2728,40 @@ function dashPlay(vid,url,errId){
 function mpegtsPlay(vid,url,errId,onFail){
   if(!window.mpegts||!mpegts.isSupported()){if(onFail)onFail();return;}
   if(window._mpegtsP){try{window._mpegtsP.pause();window._mpegtsP.unload();window._mpegtsP.detachMediaElement();window._mpegtsP.destroy();}catch(e){}window._mpegtsP=null;}
-  try{
-    const p=mpegts.createPlayer({type:'mpegts',isLive:true,url:url},{enableWorker:true,liveBufferLatencyChasing:false,liveBufferLatencyMaxLatency:6.0,liveBufferLatencyMinRemain:3.0,lazyLoad:false});
-    window._mpegtsP=p;p.attachMediaElement(vid);p.load();
-    let ok=false;
-    vid.addEventListener('loadeddata',function onld(){vid.removeEventListener('loadeddata',onld);ok=true;dbg('mpegts OK','ok');if(S.settings.autoplay)vid.play().catch(function(){});},{once:true});
-    p.on(mpegts.Events.ERROR,function(){if(!ok){p.destroy();window._mpegtsP=null;if(onFail)onFail();else showErr(errId,'TS error');}});
-    setTimeout(function(){if(!ok&&window._mpegtsP===p){p.destroy();window._mpegtsP=null;if(onFail)onFail();else showErr(errId,'Stream timed out');}},8000);
-  }catch(e){if(onFail)onFail();else showErr(errId,e.message);}
+  let _reconnectAttempts=0;
+  const _MAX_RECONNECT=2;
+  function startPlayer(){
+    try{
+      const p=mpegts.createPlayer({type:'mpegts',isLive:true,url:url},{enableWorker:true,liveBufferLatencyChasing:false,liveBufferLatencyMaxLatency:6.0,liveBufferLatencyMinRemain:3.0,lazyLoad:false});
+      window._mpegtsP=p;p.attachMediaElement(vid);p.load();
+      let ok=false;
+      vid.addEventListener('loadeddata',function onld(){vid.removeEventListener('loadeddata',onld);ok=true;dbg('mpegts OK','ok');if(S.settings.autoplay)vid.play().catch(function(){});},{once:true});
+      p.on(mpegts.Events.ERROR,function(type,detail,info){
+        const msg=(info&&info.msg)||detail||'';
+        const isEarlyEOF=msg.indexOf('Early-EOF')>-1||msg.indexOf('UnrecoverableEarlyEof')>-1;
+        if(!ok){
+          // Initial load failure — give up to outer handler
+          p.destroy();window._mpegtsP=null;
+          if(onFail)onFail();else showErr(errId,'TS error');
+          return;
+        }
+        // Stream was playing, then died. Try to reconnect.
+        if(isEarlyEOF&&_reconnectAttempts<_MAX_RECONNECT){
+          _reconnectAttempts++;
+          dbg('mpegts EOF, reconnecting ('+_reconnectAttempts+'/'+_MAX_RECONNECT+')','warn');
+          try{p.pause();p.unload();p.detachMediaElement();p.destroy();}catch(e){}
+          window._mpegtsP=null;
+          setTimeout(startPlayer,500);
+          return;
+        }
+        // Out of retries or non-EOF mid-stream error
+        try{p.destroy();}catch(e){}window._mpegtsP=null;
+        showErr(errId,'Stream dropped: '+msg);
+      });
+      setTimeout(function(){if(!ok&&window._mpegtsP===p){p.destroy();window._mpegtsP=null;if(onFail)onFail();else showErr(errId,'Stream timed out');}},8000);
+    }catch(e){if(onFail)onFail();else showErr(errId,e.message);}
+  }
+  startPlayer();
 }
 
 // ── Live Controls ─────────────────────────────────────────────────────────────
