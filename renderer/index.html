@@ -408,6 +408,10 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
         <div id="dbgLog" style="background:#000;color:#0f0;font-family:monospace;font-size:10px;padding:8px;border-radius:6px;max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></div>
       </div>
     </div>
+    <div class="sg"><h3>Hotkeys</h3>
+      <div class="sr"><div class="sl" style="flex-direction:column;align-items:flex-start;gap:4px"><div>Customize keyboard shortcuts</div><div style="font-size:11px;color:var(--dim2)">Click a binding then press a new key. Press Escape to cancel.</div></div><button class="btn sm" onclick="_resetHotkeys()">Reset Defaults</button></div>
+      <div id="hotkeyBindings" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+    </div>
     <div class="sg"><h3>Streams</h3>
       <div class="sr"><div class="sl" style="flex-direction:column;align-items:flex-start;gap:4px"><div>Dead stream cache</div><div style="font-size:11px;color:var(--dim2)" id="deadCacheStatus">Failed streams auto-skip for 24 hours.</div></div><button class="btn sm" onclick="clearDeadStreamCache()">Clear Cache</button></div>
     </div>
@@ -839,6 +843,24 @@ function getActiveVid(){
   return null;
 }
 let _pipSource=null;
+let _userPausedVideo=false;
+// Track native pause/play events on all video elements
+['liveVid','mvVid','svVid'].forEach(function(id){
+  document.addEventListener('DOMContentLoaded',function(){
+    const v=gel(id);
+    if(!v)return;
+    v.addEventListener('pause',function(){_userPausedVideo=true;});
+    v.addEventListener('play',function(){_userPausedVideo=false;});
+  });
+});
+// Also wire up immediately if DOM is already ready
+['liveVid','mvVid','svVid'].forEach(function(id){
+  const v=gel(id);
+  if(!v)return;
+  v.addEventListener('pause',function(){_userPausedVideo=true;});
+  v.addEventListener('play',function(){_userPausedVideo=false;});
+});
+
 let _pipExpanding=false;
 let _wpTimer=null;
 function nav(v,isBack){
@@ -848,7 +870,7 @@ function nav(v,isBack){
   var goingToVideo=(v==='live'||v==='movies'||v==='series');
   var av=getActiveVid();
   var sourceView=CV;
-  if(leavingVideo&&!_pipExpanding&&(!goingToVideo||(goingToVideo&&v!==CV))){
+  if(leavingVideo&&!_pipExpanding&&!_userPausedVideo&&(!goingToVideo||(goingToVideo&&v!==CV))){
     // Native PiP for regular video element
     if(av&&document.pictureInPictureEnabled&&!document.pictureInPictureElement){
       av.requestPictureInPicture().then(function(){
@@ -924,11 +946,21 @@ try{
 }catch(e){_deadStreams={};_deadDomains={};}
 function _saveDeadStreams(){try{localStorage.setItem('_deadStreams',JSON.stringify(_deadStreams));}catch(e){}}
 function _saveDeadDomains(){try{localStorage.setItem('_deadDomains',JSON.stringify(_deadDomains));}catch(e){}}
-function markDeadStream(url){
+function markDeadStream(url,isDnsError){
   if(!url)return;
   const now=Date.now();
+  // Always mark the specific URL as dead
   _deadStreams[url]=now;_saveDeadStreams();
-  try{const h=new URL(url).hostname;if(h){_deadDomains[h]=now;_saveDeadDomains();}}catch(e){}
+  // Only mark the whole host as dead if it's a DNS/connection-level failure
+  if(isDnsError){
+    try{
+      const h=new URL(url).hostname;
+      if(h){
+        _deadDomains[h]=now;_saveDeadDomains();
+        dbg('Host '+h+' marked dead (DNS/connection failure)','warn');
+      }
+    }catch(e){}
+  }
 }
 function isDeadStream(url){
   if(!url)return false;
@@ -975,7 +1007,7 @@ const _LIVE_BATCH=60;
 
 function mkChRow(c,i){
   const ini=E(c.name.slice(0,2)),isA=c.id===activeChId,isFav=S.favorites.has(c.id);
-  return '<div class="ch-item '+(isA?'active':'')+'" onclick="playChannel(\''+c.id+'\')">'
+  return '<div class="ch-item '+(isA?'active':'')+'" data-id="'+c.id+'" onclick="playChannel(\''+c.id+'\')">'
     +(S.settings.chNums?'<div class="ch-num">'+(i+1)+'</div>':'')
     +'<div class="ch-logo">'+safeLogo(c.logo,ini)+'</div>'
     +'<div class="ch-info"><div class="ch-name">'+E(c.name)+'</div><div class="ch-group">'+E(c.group||'')+(S.accounts.length>1?' <span style="color:var(--accent);font-size:10px;font-weight:600">'+E((S.accounts.find(function(a){return a.id===c.acctId;})||{name:''}).name)+'</span>':'')+'</div></div>'
@@ -1007,6 +1039,23 @@ function renderLive(){
   if(!list.length){el.innerHTML='<div class="empty">'+(S.live.length?'No channels match.':'No channels yet.')+'</div>';return;}
   el.innerHTML='';
   appendLiveRows(0,Math.min(_LIVE_BATCH,list.length));
+  // If there's an active channel, ensure it's rendered and sync cursor to it
+  if(activeChId){
+    const fullIdx=_liveList.findIndex(function(c){return c.id===activeChId;});
+    if(fullIdx>=0&&fullIdx>=_liveShown){
+      appendLiveRows(_liveShown,Math.min(fullIdx+10,_liveList.length));
+    }
+    // After rows are rendered, find the active row's DOM index and set _selIdx
+    setTimeout(function(){
+      const items=getGridItems();
+      const aidx=items.findIndex(function(el){return el.classList.contains('active');});
+      if(aidx>=0){
+        _selIdx=aidx;
+        _lastKbdActivity=Date.now();
+        items[aidx].scrollIntoView({block:'center',behavior:'auto'});
+      }
+    },100);
+  }
 }
 window.setLiveCat=function(c){liveCat=c;renderLive();saveKey('lastLiveCat',c);};
 
@@ -1131,7 +1180,16 @@ function renderMovies(){
   list=list.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
   renderGrid('mvList',list,'movie');
   buildAZ('mvList','mvAZ',list);
-  if(activeItemId&&!window._userScrolling){setTimeout(function(){var el=gel('mvList').querySelector('.grid-item.active');if(el&&!window._userScrolling)el.scrollIntoView({block:'center',behavior:'smooth'});},200);}
+  if(activeItemId&&!window._userScrolling){setTimeout(function(){
+    var el=gel('mvList').querySelector('.grid-item.active');
+    if(el&&!window._userScrolling)el.scrollIntoView({block:'center',behavior:'smooth'});
+    // Sync keyboard cursor to active item
+    if(CV==='movies'){
+      const items=getGridItems();
+      const aidx=items.findIndex(function(e){return e.classList.contains('active');});
+      if(aidx>=0){_selIdx=aidx;_lastKbdActivity=Date.now();}
+    }
+  },200);}
 }
 window.setMvCat=function(c){mvCat=c;renderMovies();};
 
@@ -1147,7 +1205,16 @@ function renderSeries(){
   list=list.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
   renderGrid('svList',list,'series');
   buildAZ('svList','svAZ',list);
-  if(activeItemId&&!window._userScrolling){setTimeout(function(){var el=gel('svList').querySelector('.grid-item.active');if(el&&!window._userScrolling)el.scrollIntoView({block:'center',behavior:'smooth'});},200);}
+  if(activeItemId&&!window._userScrolling){setTimeout(function(){
+    var el=gel('svList').querySelector('.grid-item.active');
+    if(el&&!window._userScrolling)el.scrollIntoView({block:'center',behavior:'smooth'});
+    // Sync keyboard cursor to active item
+    if(CV==='series'){
+      const items=getGridItems();
+      const aidx=items.findIndex(function(e){return e.classList.contains('active');});
+      if(aidx>=0){_selIdx=aidx;_lastKbdActivity=Date.now();}
+    }
+  },200);}
 }
 window.setSvCat=function(c){svCat=c;renderSeries();};
 
@@ -1187,7 +1254,7 @@ function jumpAZ(listId,letter){
     if(chunk.length){
       function mkRow2(m){
         const ini=E(m.name.slice(0,2));
-        return '<div class="grid-item" onclick="playItem(\''+m.id+'\',\''+type+'\')">'
+        return '<div class="grid-item" data-id="'+m.id+'" onclick="playItem(\''+m.id+'\',\''+type+'\')">'
           +'<div class="g-logo">'+(m.logo?'<img src="'+E(m.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
           +'<div class="g-info"><div class="g-name">'+E(m.name)+'</div><div class="g-meta">'+E(m.group||'')+(m.year?' • '+m.year:'')+'</div></div>'
           +'<span class="play-arrow">▶</span></div>';
@@ -1212,7 +1279,7 @@ function renderGrid(listId,list,type){
   function mkRow(m){
     const ini=E(m.name.slice(0,2));
     const isActive=m.id===activeItemId;
-    return '<div class="grid-item'+(isActive?' active':'')+'" onclick="playItem(\''+m.id+'\',\''+type+'\')">'
+    return '<div class="grid-item'+(isActive?' active':'')+'" data-id="'+m.id+'" onclick="playItem(\''+m.id+'\',\''+type+'\')">'
       +'<div class="g-logo">'+(m.logo?'<img src="'+E(m.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
       +'<div class="g-info"><div class="g-name">'+E(m.name)+'</div><div class="g-meta">'+E(m.group||'')+(m.year?' • '+m.year:'')+(S.accounts.length>1?' <span style="color:var(--accent);font-size:10px;font-weight:600">'+E((S.accounts.find(function(a){return a.id===m.acctId;})||{name:''}).name)+'</span>':'')+'</div></div>'
       +'<span class="play-arrow">▶</span></div>';
@@ -1522,9 +1589,13 @@ let _lastView = null;
 let _selIdx = -1;
 
 function getActiveVideo(){
-  if(gel('mvPlayer')&&gel('mvPlayer').classList.contains('show'))return gel('mvVid');
-  if(gel('svPlayer')&&gel('svPlayer').classList.contains('show'))return gel('svVid');
-  if(CV==='live')return gel('liveVid');
+  // Match the current view first so hotkeys target the right video
+  if(CV==='live'){const v=gel('liveVid');if(v)return v;}
+  if(CV==='movies'){const p=gel('mvPlayer');if(p&&p.classList.contains('show'))return gel('mvVid');}
+  if(CV==='series'){const p=gel('svPlayer');if(p&&p.classList.contains('show'))return gel('svVid');}
+  // Fallback: any video that's currently playing
+  const ids=['liveVid','mvVid','svVid'];
+  for(const id of ids){const v=gel(id);if(v&&!v.paused&&v.readyState>=1)return v;}
   return null;
 }
 
@@ -1661,7 +1732,10 @@ window.nav=function(v){
     if(!savedId){_selIdx=-1;return;}
     if(v==='live'&&typeof ensureItemRendered==='function')ensureItemRendered(savedId);
     const items=getGridItems();
-    const idx=items.findIndex(function(el){return getItemId(el)===savedId;});
+    // Prefer the currently-watching/active item over the saved cursor position
+    const activeIdx=items.findIndex(function(el){return el.classList.contains('active');});
+    const savedIdx=items.findIndex(function(el){return getItemId(el)===savedId;});
+    const idx=activeIdx>=0?activeIdx:savedIdx;
     if(idx>=0){
       _selIdx=idx;
       _lastKbdActivity=Date.now();
@@ -1675,107 +1749,156 @@ window.nav=function(v){
 // Strict extraction: pull the ID from the play handler (playChannel/playItem) onclick.
 // The element's main onclick is a play call. The fav button is a separate element inside,
 // so reading the element's own onclick attribute (not innerHTML) gives us the play handler only.
-function getItemId(el){
-  const oc=el.getAttribute('onclick')||'';
-  // Match playChannel('id') or playItem('id','type')
-  const m=oc.match(/play(?:Channel|Item)\('([^']+)'/);
-  return m?m[1]:null;
+function getItemId(el){return el?(el.getAttribute('data-id')||null):null;}
+
+// ── Hotkey configuration ──────────────────────────────────────────────────────
+const _hotkeyDefaults={
+  playPause:'Space',
+  enter:'Enter',
+  fullscreen:'f',
+  mute:'m',
+  volumeUp:'+',
+  volumeDown:'-',
+  seekBack:'[',
+  seekForward:']',
+  closePlayer:'Escape',
+  backToLastView:'Tab',
+  navUp:'ArrowUp',
+  navDown:'ArrowDown',
+  navLeft:'ArrowLeft',
+  navRight:'ArrowRight'
+};
+const _hotkeyLabels={
+  playPause:'Play / Pause',
+  enter:'Play Selected',
+  fullscreen:'Fullscreen',
+  mute:'Mute',
+  volumeUp:'Volume Up',
+  volumeDown:'Volume Down',
+  seekBack:'Seek Back 10s',
+  seekForward:'Seek Forward 10s',
+  closePlayer:'Close Player',
+  backToLastView:'Back to Last View',
+  navUp:'Navigate Up',
+  navDown:'Navigate Down',
+  navLeft:'Navigate Left',
+  navRight:'Navigate Right'
+};
+let _hotkeys=Object.assign({},_hotkeyDefaults);
+try{const s=localStorage.getItem('_hotkeys');if(s)_hotkeys=Object.assign({},_hotkeyDefaults,JSON.parse(s));}catch(e){}
+function _saveHotkeys(){try{localStorage.setItem('_hotkeys',JSON.stringify(_hotkeys));}catch(e){}}
+function _resetHotkeys(){_hotkeys=Object.assign({},_hotkeyDefaults);_saveHotkeys();renderHotkeyBindings();toast('Hotkeys reset to defaults','ok');}
+
+// Normalize a key event into a string key like 'a', 'ArrowUp', '+', 'Space'
+function _eventKeyString(e){
+  if(e.code==='Space')return 'Space';
+  return e.key.length===1?e.key.toLowerCase():e.key;
 }
 
+// Match a configured hotkey against an event
+function _matchHotkey(action,e){
+  const k=_hotkeys[action];if(!k)return false;
+  const ek=_eventKeyString(e);
+  if(k==='Space')return e.code==='Space';
+  // Treat '+' and '=' as equivalent so users don't need Shift
+  if(k==='+')return ek==='+'||ek==='=';
+  if(k==='=')return ek==='='||ek==='+';
+  if(k.length===1)return ek===k.toLowerCase();
+  return ek===k;
+}
+
+// Action handlers — each takes (e, v) where v is the active video
+const _hotkeyActions={
+  playPause:function(e,v){if(v){e.preventDefault();if(v.paused){v.play();_userPausedVideo=false;}else{v.pause();_userPausedVideo=true;}}},
+  enter:function(e){
+    const items=getGridItems();
+    if(_selIdx>=0&&_selIdx<items.length){e.preventDefault();items[_selIdx].click();return;}
+    const focused=document.activeElement;
+    if(focused&&focused!==document.body&&typeof focused.click==='function'){e.preventDefault();focused.click();}
+  },
+  fullscreen:function(e,v){
+    if(!v)return;
+    e.preventDefault();
+    if(document.fullscreenElement){document.exitFullscreen();}
+    else if(v.requestFullscreen){v.requestFullscreen();}
+    else if(v.webkitRequestFullscreen){v.webkitRequestFullscreen();}
+  },
+  mute:function(e,v){if(v){e.preventDefault();v.muted=!v.muted;syncVolUI(v);toast(v.muted?'Muted':'Unmuted','ok');}},
+  volumeUp:function(e,v){if(v){e.preventDefault();v.volume=Math.min(1,v.volume+0.05);v.muted=false;syncVolUI(v);}},
+  volumeDown:function(e,v){if(v){e.preventDefault();v.volume=Math.max(0,v.volume-0.05);syncVolUI(v);}},
+  seekBack:function(e,v){if(v&&!isNaN(v.duration)){e.preventDefault();v.currentTime=Math.max(0,v.currentTime-10);}},
+  seekForward:function(e,v){if(v&&!isNaN(v.duration)){e.preventDefault();v.currentTime=Math.min(v.duration,v.currentTime+10);}},
+  closePlayer:function(e){
+    if(gel('mvPlayer')&&gel('mvPlayer').classList.contains('show')){e.preventDefault();closeInline('mv');return;}
+    if(gel('svPlayer')&&gel('svPlayer').classList.contains('show')){e.preventDefault();closeInline('sv');return;}
+  },
+  backToLastView:function(e){if(_lastView&&CV!==_lastView){e.preventDefault();nav(_lastView);toast('Back to '+_lastView,'ok');}},
+  navUp:function(e){e.preventDefault();moveSel(-1);},
+  navDown:function(e){e.preventDefault();moveSel(1);},
+  navLeft:function(e){e.preventDefault();moveSel(-1);},
+  navRight:function(e){e.preventDefault();moveSel(1);}
+};
+
+// Main keydown handler — uses the hotkey map
 document.addEventListener('keydown',function(e){
   const tag=(e.target.tagName||'').toLowerCase();
   if(tag==='input'||tag==='textarea'||e.target.isContentEditable)return;
   if(document.querySelector('.modal.show'))return;
-  
+  // If a rebind is in progress, swallow the key (handled by rebind UI)
+  if(_hotkeyRebindAction)return;
+  // If a video element has focus, blur it so native bindings don't double-fire with ours
+  if(tag==='video'){e.target.blur();}
   const v=getActiveVideo();
-  
-  // Space — play/pause
-  if(e.code==='Space'){
-    if(v){e.preventDefault();v.paused?v.play():v.pause();}
-    return;
-  }
-  
-  // Enter — play selected grid item
-  if(e.key==='Enter'){
-    const items=getGridItems();
-    if(_selIdx>=0&&_selIdx<items.length){
-      e.preventDefault();items[_selIdx].click();return;
+  // Check each configured hotkey, run the first match
+  for(const action in _hotkeyActions){
+    if(_matchHotkey(action,e)){
+      _hotkeyActions[action](e,v);
+      return;
     }
-    const focused=document.activeElement;
-    if(focused&&focused!==document.body&&typeof focused.click==='function'){
-      e.preventDefault();focused.click();
-    }
-    return;
   }
-  
-  // F — fullscreen
-  if(e.key==='f'||e.key==='F'){
-    if(v){
-      e.preventDefault();
-      if(document.fullscreenElement){document.exitFullscreen();}
-      else if(v.requestFullscreen){v.requestFullscreen();}
-      else if(v.webkitRequestFullscreen){v.webkitRequestFullscreen();}
-    }
-    return;
-  }
-  
-  // M — mute
-  if(e.key==='m'||e.key==='M'){
-    if(v){e.preventDefault();v.muted=!v.muted;syncVolUI(v);toast(v.muted?'Muted':'Unmuted','ok');}
-    return;
-  }
-  
-  // + / = — volume up
-  if(e.key==='+'||e.key==='='){
-    if(v){e.preventDefault();v.volume=Math.min(1,v.volume+0.05);v.muted=false;syncVolUI(v);}
-    return;
-  }
-  
-  // - — volume down
-  if(e.key==='-'){
-    if(v){e.preventDefault();v.volume=Math.max(0,v.volume-0.05);syncVolUI(v);}
-    return;
-  }
-  
-  // [ — seek back 10s
-  if(e.key==='['){
-    if(v&&!isNaN(v.duration)){e.preventDefault();v.currentTime=Math.max(0,v.currentTime-10);}
-    return;
-  }
-  
-  // ] — seek forward 10s
-  if(e.key===']'){
-    if(v&&!isNaN(v.duration)){e.preventDefault();v.currentTime=Math.min(v.duration,v.currentTime+10);}
-    return;
-  }
-  
-  // Escape — close player
-  if(e.key==='Escape'){
-    if(gel('mvPlayer')&&gel('mvPlayer').classList.contains('show')){
-      e.preventDefault();closeInline('mv');return;
-    }
-    if(gel('svPlayer')&&gel('svPlayer').classList.contains('show')){
-      e.preventDefault();closeInline('sv');return;
-    }
-    return;
-  }
-  
-  // Tab — back to last view
-  if(e.key==='Tab'&&!e.shiftKey){
-    if(_lastView&&CV!==_lastView){
-      e.preventDefault();
-      nav(_lastView);
-      toast('Back to '+_lastView,'ok');
-    }
-    return;
-  }
-  
-  // Arrow keys — navigate grid
-  if(e.key==='ArrowUp'){e.preventDefault();moveSel(-1);return;}
-  if(e.key==='ArrowDown'){e.preventDefault();moveSel(1);return;}
-  if(e.key==='ArrowLeft'){e.preventDefault();moveSel(-1);return;}
-  if(e.key==='ArrowRight'){e.preventDefault();moveSel(1);return;}
 });
+
+// ── Hotkey rebind UI state ────────────────────────────────────────────────────
+let _hotkeyRebindAction=null; // which action is currently being rebound
+function startHotkeyRebind(action){
+  _hotkeyRebindAction=action;
+  renderHotkeyBindings();
+  // Capture next keypress globally
+  function onKey(ev){
+    ev.preventDefault();
+    ev.stopPropagation();
+    if(ev.key==='Escape'){
+      _hotkeyRebindAction=null;
+      document.removeEventListener('keydown',onKey,true);
+      renderHotkeyBindings();
+      return;
+    }
+    const newKey=_eventKeyString(ev);
+    _hotkeys[action]=newKey;
+    _saveHotkeys();
+    _hotkeyRebindAction=null;
+    document.removeEventListener('keydown',onKey,true);
+    renderHotkeyBindings();
+    toast(_hotkeyLabels[action]+' bound to '+newKey,'ok');
+  }
+  document.addEventListener('keydown',onKey,true);
+}
+
+function renderHotkeyBindings(){
+  const wrap=gel('hotkeyBindings');
+  if(!wrap)return;
+  let html='';
+  for(const action in _hotkeyDefaults){
+    const cur=_hotkeys[action]||'(unset)';
+    const isRebinding=_hotkeyRebindAction===action;
+    const label=_hotkeyLabels[action]||action;
+    html+='<div class="sr"><div class="sl">'+label+'</div>'+
+      '<button class="btn sm" onclick="startHotkeyRebind(\''+action+'\')" style="min-width:120px">'+
+      (isRebinding?'Press a key...':cur)+
+      '</button></div>';
+  }
+  wrap.innerHTML=html;
+}
 
 // ── Favorites ─────────────────────────────────────────────────────────────────
 function renderFavs(){
@@ -1785,7 +1908,7 @@ function renderFavs(){
     .filter(function(c){return S.favorites.has(c.id);});
   gel('favList').innerHTML=all.length?all.map(function(c){
     const ini=E(c.name.slice(0,2));
-    return '<div class="fav-item" onclick="playItem(\''+c.id+'\',\''+c.type+'\')">'
+    return '<div class="fav-item" data-id="'+c.id+'" onclick="playItem(\''+c.id+'\',\''+c.type+'\')">'
       +'<div class="g-logo">'+safeLogo(c.logo,ini)+'</div>'
       +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(c.name)+'</div>'
       +'<div style="font-size:11px;color:var(--dim)">'+c.type+'</div></div>'
@@ -2078,6 +2201,7 @@ async function _reloadAcctImpl(id){
 function renderSettings(){
   gel('togAP').classList.toggle('on',!!S.settings.autoplay);
   gel('togCN').classList.toggle('on',!!S.settings.chNums);
+  if(typeof renderHotkeyBindings==='function')renderHotkeyBindings();
 }
 function toggleSetting(el,k){S.settings[k]=!S.settings[k];el.classList.toggle('on');saveKey('settings',S.settings);}
 async function exportData(){
@@ -2528,8 +2652,11 @@ function showStreamIframe(imdbId, type, season, episode, sourceIndex) {
   const vid = type === 'movie' ? gel('mvVid') : gel('svVid');
   if(!vid) return;
 
+  // Clean up any existing iframe (inline OR in pseudo-PiP)
   const existingIframe = gel('streamFallbackIframe');
   if(existingIframe) existingIframe.remove();
+  // Also tear down any leftover pseudo-PiP wrap
+  if(typeof closeIframePip==='function'&&gel('iframePipWrap'))closeIframePip();
 
   const sources = type === 'movie' ? STREAM_SOURCES : STREAM_SOURCES_TV;
   if(sourceIndex >= sources.length) {
@@ -2617,9 +2744,12 @@ function tryFailover(errId) {
 }
 
 function showErr(id,msg){
-  // Mark this stream URL as dead (cached so we skip it on retry)
-  if(_activeStreamUrl&&(msg==='Stream unavailable'||msg==='Stream timed out'||(msg||'').indexOf('manifestLoadError')>-1||(msg||'').indexOf('Unauthorized')>-1)){
-    markDeadStream(_activeStreamUrl);
+  // Detect codec errors — never mark dead on these, the stream is fine, our player can't decode
+  const isCodecErr=(msg||'').indexOf('codec')>-1||(msg||'').indexOf('SourceBuffer')>-1||(msg||'').indexOf('ac-3')>-1||(msg||'').indexOf('addSourceBuffer')>-1;
+  // Detect DNS/connection-level errors — mark whole host dead
+  const isDnsErr=(msg||'').indexOf('ERR_NAME_NOT_RESOLVED')>-1||(msg||'').indexOf('ERR_CONNECTION_REFUSED')>-1||(msg||'').indexOf('ERR_INTERNET_DISCONNECTED')>-1||(msg||'').indexOf('ERR_ADDRESS_UNREACHABLE')>-1;
+  if(_activeStreamUrl&&!isCodecErr&&(msg==='Stream unavailable'||msg==='Stream timed out'||(msg||'').indexOf('manifestLoadError')>-1||(msg||'').indexOf('Unauthorized')>-1)){
+    markDeadStream(_activeStreamUrl,isDnsErr);
   }
   if(tryFailover(id)) return;
   // Try StreamIMDB fallback for movie/series
@@ -2765,7 +2895,7 @@ function mpegtsPlay(vid,url,errId,onFail){
 }
 
 // ── Live Controls ─────────────────────────────────────────────────────────────
-function vidPP(){const v=gel('liveVid');if(v.paused)v.play().catch(function(){});else v.pause();gel('ppBtn').textContent=v.paused?'▶':'⏸';}
+function vidPP(){const v=gel('liveVid');if(v.paused){v.play().catch(function(){});_userPausedVideo=false;}else{v.pause();_userPausedVideo=true;}gel('ppBtn').textContent=v.paused?'▶':'⏸';}
 function vidMute(){const v=gel('liveVid');v.muted=!v.muted;gel('muteBtn').textContent=v.muted?'🔇':'🔊';}
 function vidVol(val){const v=gel('liveVid');v.volume=val/100;v.muted=val==0;}
 function vidFS(){const v=gel('liveVid');if(v.requestFullscreen)v.requestFullscreen();else if(v.webkitRequestFullscreen)v.webkitRequestFullscreen();}
