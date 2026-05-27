@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('darkflix', {
   encrypt:     (text)       => ipcRenderer.invoke('crypto:encrypt', text),
   decrypt:     (text)       => ipcRenderer.invoke('crypto:decrypt', text),
   platform:    process.platform,
-  appVersion:   process.env.npm_package_version || '1.0.5',
+  appVersion:   () => ipcRenderer.invoke('app:getVersion'),
   castDiscover: ()                    => ipcRenderer.invoke('cast:discover'),
   castSend:     (device, url, type)   => ipcRenderer.invoke('cast:send', device, url, type),
   castStop:     ()                    => ipcRenderer.invoke('cast:stop'),

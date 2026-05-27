@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -30,9 +30,32 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false,
     },
   });
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        shell.openExternal(url);
+      }
+    } catch {}
+    return { action: 'deny' };
+  });
+
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowed = win.webContents.getURL();
+    if (url !== allowed) {
+      event.preventDefault();
+      try {
+        const u = new URL(url);
+        if (u.protocol === 'http:' || u.protocol === 'https:') {
+          shell.openExternal(url);
+        }
+      } catch {}
+    }
+  });
+
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   console.log('[DEBUG][Main] createWindow - Status: Success');
 }
@@ -75,6 +98,10 @@ ipcMain.handle('update:download', async () => {
 
 ipcMain.handle('update:install', () => {
   autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('app:getVersion', () => {
+  return app.getVersion();
 });
 
 app.whenReady().then(() => {
