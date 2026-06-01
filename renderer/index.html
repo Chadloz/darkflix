@@ -1129,29 +1129,57 @@ function playChannel(id){
         resolveStalkerUrl(ch).then(function(u){_nextUrl=u;_prefetching=false;});
       },12000);
     }
+    // Track reconnect attempts to prevent infinite loops on unstable streams
+    var _reconnectCount=0;
+    var _lastReconnectTime=0;
+    var _MAX_RAPID_RECONNECTS=8;
+    var _RAPID_WINDOW_MS=30000; // 30 second window
+    var _RECONNECT_DELAY_MS=500;
+    
     vid._liveReconnect=function(){
       if(activeChId!==ch.id)return;
-      dbg('Stream ended — reconnecting...','warn');
-      gel('nowName').textContent=ch.name+' (reconnecting...)';
-      if(acct&&acct.type==='stalker'){
-        if(_nextUrl){
-          dbg('Using pre-fetched token','ok');
-          var url2=_nextUrl;_nextUrl=null;
-          gel('nowName').textContent=ch.name;
-          mpegtsPlay(vid,url2,'liveErr',function(){loadStream(vid,url2,'liveErr');});
-          // Reset for next cycle
-          _prefetching=false;
-        }else{
-          resolveStalkerUrl(ch).then(function(newUrl){
-            gel('nowName').textContent=ch.name;
-            mpegtsPlay(vid,newUrl,'liveErr',function(){loadStream(vid,newUrl,'liveErr');});
-            _prefetching=false;
-          });
-        }
-      }else{
-        gel('nowName').textContent=ch.name;
-        loadStream(vid,url,'liveErr');
+      
+      var now=Date.now();
+      // Reset counter if it's been a while since last reconnect
+      if(now-_lastReconnectTime>_RAPID_WINDOW_MS){
+        _reconnectCount=0;
       }
+      _lastReconnectTime=now;
+      _reconnectCount++;
+      
+      // If we've hit too many rapid reconnects, stop and show an error
+      if(_reconnectCount>_MAX_RAPID_RECONNECTS){
+        dbg('Stream unstable after '+_reconnectCount+' reconnects, giving up','err');
+        gel('nowName').textContent=ch.name+' (unstable — click ↻ to retry)';
+        showErr('liveErr','Stream unstable. Try a different channel or click retry.');
+        return;
+      }
+      
+      dbg('Stream ended — reconnecting ('+_reconnectCount+'/'+_MAX_RAPID_RECONNECTS+')...','warn');
+      gel('nowName').textContent=ch.name+' (reconnecting...)';
+      
+      // Small delay before reconnect to avoid hammering server
+      setTimeout(function(){
+        if(activeChId!==ch.id)return;
+        if(acct&&acct.type==='stalker'){
+          if(_nextUrl){
+            dbg('Using pre-fetched token','ok');
+            var url2=_nextUrl;_nextUrl=null;
+            gel('nowName').textContent=ch.name;
+            mpegtsPlay(vid,url2,'liveErr',function(){loadStream(vid,url2,'liveErr');});
+            _prefetching=false;
+          }else{
+            resolveStalkerUrl(ch).then(function(newUrl){
+              gel('nowName').textContent=ch.name;
+              mpegtsPlay(vid,newUrl,'liveErr',function(){loadStream(vid,newUrl,'liveErr');});
+              _prefetching=false;
+            });
+          }
+        }else{
+          gel('nowName').textContent=ch.name;
+          loadStream(vid,url,'liveErr');
+        }
+      },_RECONNECT_DELAY_MS);
     };
     vid.addEventListener('ended',vid._liveReconnect);
   };
