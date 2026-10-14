@@ -945,9 +945,10 @@ try{
 }catch(e){_deadStreams={};_deadDomains={};}
 function _saveDeadStreams(){try{localStorage.setItem('_deadStreams',JSON.stringify(_deadStreams));}catch(e){}}
 function _saveDeadDomains(){try{localStorage.setItem('_deadDomains',JSON.stringify(_deadDomains));}catch(e){}}
-function markDeadStream(url,isDnsError){
+function markDeadStream(url,isDnsError,ttlMs){
   if(!url)return;
-  const now=Date.now();
+  // Shorter lifetime: backdate the mark so it expires sooner (a refusing server can recover fast)
+  const now=Date.now()-((ttlMs&&ttlMs<_DEAD_TTL_MS)?(_DEAD_TTL_MS-ttlMs):0);
   // Always mark the specific URL as dead
   _deadStreams[url]=now;_saveDeadStreams();
   // Only mark the whole host as dead if it's a DNS/connection-level failure
@@ -2696,7 +2697,7 @@ function showErr(id,msg){
     if(!isDnsErr&&window.darkflix.checkHost){
       const _u=_activeStreamUrl;
       window.darkflix.checkHost(_u).then(function(r){
-        if(r&&r.dead){markDeadStream(_u,true);dbg('Server is down ('+(r.code||'dead')+'), marking host dead: '+r.host,'warn');}
+        if(r&&r.dead){markDeadStream(_u,true,(r.code==='ENOTFOUND'||r.code==='EAI_NONAME')?0:30*60*1000);dbg('Server is down ('+(r.code||'dead')+'), marking host dead: '+r.host,'warn');}
       }).catch(function(){});
     }
   }
@@ -2735,7 +2736,7 @@ function loadStream(vid,url,errId){
   if(!vid||!url){showErr(errId,'No URL');return;}
   if(isDeadStream(url)){
     dbg('Skipping known-dead stream: '+url.split('/')[2],'warn');
-    showErr(errId,'Stream unavailable (offline)');
+    showErr(errId,'Server down, skipped for now (will retry later)');
     return;
   }
   dbg('loadStream: '+url.split('?')[0].split('/').slice(-2).join('/'));
