@@ -246,7 +246,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
   <div class="home-actions">
     <button class="btn primary" onclick="openModal('mAA')">+ Account</button>
     <button class="btn" onclick="openModal('mIM')">Import M3U</button>
-    <button class="btn" onclick="openModal('mAC')">+ Channel</button>
+    <button class="btn" onclick="openModal('mAC');renderManualList()">+ Channel</button>
   </div>
   <div id="hRecent" style="display:none" class="home-section">
     <div class="home-section-head">⚡ Recent</div>
@@ -372,7 +372,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
 <button class="btn primary sm" onclick="openModal('mAA')">+ Account</button>
       <button class="btn sm ok" onclick="toggleFreePanel()">📡 Free Channels</button>
       <button class="btn sm" onclick="openModal('mIM')">Import M3U</button>
-      <button class="btn sm" onclick="openModal('mAC')">+ Channel</button>
+      <button class="btn sm" onclick="openModal('mAC');renderManualList()">+ Channel</button>
     </div>
   </div>
   <div id="freePanel" style="display:none;" class="free-panel"></div>
@@ -518,6 +518,10 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       </div>
       <div class="st" id="acSt"></div>
       <button class="btn primary sm" onclick="addChannel()" style="align-self:flex-end">Add Channel</button>
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:12px;color:var(--dim2);margin-bottom:6px">Your added channels</div>
+        <div id="acList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+      </div>
     </div>
 </div>
 </div>
@@ -2600,12 +2604,36 @@ async function processM3U(text,source){
   setTimeout(function(){closeModal('mIM');},1500);nav('live');
 }
 
+// ── Manually added channels: list + remove ──
+function renderManualList(){
+  const el=gel('acList');if(!el)return;
+  const rows=[];
+  [['live',S.live],['movie',S.movies],['series',S.series]].forEach(function(p){
+    (p[1]||[]).forEach(function(c){if(c.acctId==='manual')rows.push({t:p[0],c:c});});
+  });
+  if(!rows.length){el.innerHTML='<div style="font-size:12px;color:var(--dim)">No channels added yet.</div>';return;}
+  el.innerHTML=rows.map(function(r){
+    const label=r.t==='live'?'Live':r.t==='movie'?'Movie':'Show';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--s2);border-radius:6px">'
+      +'<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px">'+E(r.c.name)+'</div>'
+      +'<span style="font-size:10px;color:var(--dim)">'+label+'</span>'
+      +'<button class="btn sm" title="Remove" onclick="removeManual(\''+r.c.id+'\',\''+r.t+'\')">✕</button></div>';
+  }).join('');
+}
+async function removeManual(id,t){
+  const key=t==='live'?'live':t==='movie'?'movies':'series';
+  const ch=(S[key]||[]).find(function(c){return c.id===id;});
+  if(!ch)return;
+  if(!confirm('Remove "'+ch.name+'"?'))return;
+  S[key]=S[key].filter(function(c){return c.id!==id;});
+  await saveAll();updateBadges();renderManualList();toast('Channel removed','ok');
+}
 async function addChannel(){
   const n=gel('acName').value.trim(),u=gel('acUrl').value.trim(),g=gel('acGroup').value.trim(),t=gel('acType').value;
   if(!n||!u){setSt('acSt','Name and URL required.','err');return;}
   const ch={id:U(),acctId:'manual',name:n,url:u,group:g,logo:''};
   if(t==='live')S.live.push(ch);else if(t==='movie')S.movies.push(ch);else S.series.push(ch);
-  await saveAll();updateBadges();setSt('acSt','✅ Channel added!','ok');
+  await saveAll();updateBadges();setSt('acSt','✅ Channel added!','ok');renderManualList();
   ['acName','acUrl','acGroup'].forEach(function(i){gel(i).value='';});
   setTimeout(function(){closeModal('mAC');},800);
 }
@@ -2668,7 +2696,7 @@ function showErr(id,msg){
     if(!isDnsErr&&window.darkflix.checkHost){
       const _u=_activeStreamUrl;
       window.darkflix.checkHost(_u).then(function(r){
-        if(r&&r.dead){markDeadStream(_u,true);dbg('Server domain is gone, marking host dead: '+r.host,'warn');}
+        if(r&&r.dead){markDeadStream(_u,true);dbg('Server is down ('+(r.code||'dead')+'), marking host dead: '+r.host,'warn');}
       }).catch(function(){});
     }
   }

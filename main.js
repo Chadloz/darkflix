@@ -177,20 +177,43 @@ ipcMain.handle('store:getAll', () => {
   return _store;
 });
 
-// Check whether a stream server's domain still exists.
-// Returns dead:true only if the domain is gone AND the internet itself works.
+// Check whether a stream server is gone: its domain no longer exists, or it refuses connections.
+// Only reports dead when the internet itself is working.
+function tcpProbe(host, port, ms) {
+  return new Promise((resolve) => {
+    const s = net.connect({ host, port });
+    const done = (r) => { try { s.destroy(); } catch {} resolve(r); };
+    s.setTimeout(ms, () => done('timeout'));
+    s.once('connect', () => done('ok'));
+    s.once('error', (err) => done(err.code || 'error'));
+  });
+}
+async function internetUp() {
+  try { await dns.promises.lookup('cloudflare.com'); return (await tcpProbe('cloudflare.com', 443, 3000)) === 'ok'; }
+  catch { return false; }
+}
 ipcMain.handle('net:checkHost', async (e, url) => {
-  let host = '';
-  try { host = new URL(url).hostname; } catch { return { dead: false }; }
-  if (!host || net.isIP(host)) return { dead: false, host };
-  try { await dns.promises.lookup(host); return { dead: false, host }; }
-  catch (err) {
-    if (err.code !== 'ENOTFOUND' && err.code !== 'EAI_NONAME') return { dead: false, host, code: err.code };
-    try { await dns.promises.lookup('cloudflare.com'); }
-    catch { console.log('[DEBUG][Main] net:checkHost - Status: Offline, not marking ' + host); return { dead: false, host, offline: true }; }
-    console.log('[DEBUG][Main] net:checkHost - Status: Dead domain - Payload: ' + host);
-    return { dead: true, host, code: err.code };
+  let u; try { u = new URL(url); } catch { return { dead: false }; }
+  const host = u.hostname;
+  if (!host) return { dead: false };
+  const port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
+  const label = host + ':' + port;
+  if (!net.isIP(host)) {
+    try { await dns.promises.lookup(host); }
+    catch (err) {
+      if (err.code !== 'ENOTFOUND' && err.code !== 'EAI_NONAME') return { dead: false, host: label, code: err.code };
+      if (!(await internetUp())) { console.log('[DEBUG][Main] net:checkHost - Status: Offline, not marking ' + label); return { dead: false, host: label, offline: true }; }
+      console.log('[DEBUG][Main] net:checkHost - Status: Dead domain - Payload: ' + label);
+      return { dead: true, host: label, code: err.code };
+    }
   }
+  const r = await tcpProbe(host, port, 4000);
+  if (r === 'ECONNREFUSED' || r === 'EHOSTUNREACH' || r === 'ENETUNREACH') {
+    if (!(await internetUp())) { console.log('[DEBUG][Main] net:checkHost - Status: Offline, not marking ' + label); return { dead: false, host: label, offline: true }; }
+    console.log('[DEBUG][Main] net:checkHost - Status: Server refusing connections - Payload: ' + label);
+    return { dead: true, host: label, code: r };
+  }
+  return { dead: false, host: label, code: r };
 });
 
 ipcMain.handle('net:fetchText', async (e, url, headers = {}) => {
