@@ -1143,13 +1143,13 @@ function playChannel(id){
     appendLiveRows(_liveShown,Math.min(idx+20,_liveList.length));
   }
   gel('playerBox').style.display='';gel('playerPH').style.display='none';
-  gel('nowBar').style.display='flex';gel('nowName').textContent=ch.name;
+  gel('nowBar').style.display='flex';gel('nowName').textContent=ch.name;updateMediaInfo(ch.name,'Live TV');
   var _na=S.accounts.find(function(a){return a.id===ch.acctId;});
   var _naEl=gel('nowAcct');if(_naEl)_naEl.textContent=_na?'• '+_na.name:'';
   clrErr('liveErr');
   var vid=gel('liveVid');
   if(vid._liveReconnect){vid.removeEventListener('ended',vid._liveReconnect);vid._liveReconnect=null;}
-  if(document.pictureInPictureElement){_pipSource=null;document.exitPictureInPicture().catch(function(){});}
+  if(document.pictureInPictureElement&&!_pipStepping){_pipSource=null;document.exitPictureInPicture().catch(function(){});}
   if(gel('iframePipWrap'))closeIframePip();
   var acct=S.accounts.find(function(a){return a.id===ch.acctId;});
   var doPlay=function(url){
@@ -1873,6 +1873,30 @@ function _matchHotkey(action,e){
 }
 
 // Action handlers — each takes (e, v) where v is the active video
+// ── Media Session: PiP window controls, macOS Now Playing, media keys ──
+let _pipStepping=false;
+function stepChannel(dir){
+  if(!_liveList||!_liveList.length)return;
+  let i=_liveList.findIndex(function(c){return c.id===activeChId;});
+  i=(i<0)?0:(i+dir+_liveList.length)%_liveList.length;
+  _pipStepping=true;
+  try{playChannel(_liveList[i].id);}finally{_pipStepping=false;}
+}
+function mediaTarget(){return document.pictureInPictureElement||getActiveVideo();}
+function liveIsActive(){return !!activeChId&&(_pipSource==='live'||CV==='live');}
+function setupMediaSession(){
+  if(!('mediaSession' in navigator))return;
+  const ms=navigator.mediaSession;
+  ms.setActionHandler('play',function(){const v=mediaTarget();if(v){v.play().catch(function(){});_userPausedVideo=false;}});
+  ms.setActionHandler('pause',function(){const v=mediaTarget();if(v){v.pause();_userPausedVideo=true;}});
+  ms.setActionHandler('nexttrack',function(){if(liveIsActive())stepChannel(1);});
+  ms.setActionHandler('previoustrack',function(){if(liveIsActive())stepChannel(-1);});
+}
+function updateMediaInfo(title,sub){
+  if(!('mediaSession' in navigator))return;
+  try{navigator.mediaSession.metadata=new MediaMetadata({title:title||'Black Mango',artist:sub||'Black Mango'});}catch(e){}
+}
+setupMediaSession();
 const _hotkeyActions={
   playPause:function(e,v){if(v){e.preventDefault();if(v.paused){v.play();_userPausedVideo=false;}else{v.pause();_userPausedVideo=true;}}},
   enter:function(e){
