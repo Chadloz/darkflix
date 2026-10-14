@@ -2780,6 +2780,8 @@ function mpegtsPlay(vid,url,errId,onFail){
   if(!window.mpegts||!mpegts.isSupported()){if(onFail)onFail();return;}
   if(window._mpegtsP){try{window._mpegtsP.pause();window._mpegtsP.unload();window._mpegtsP.detachMediaElement();window._mpegtsP.destroy();}catch(e){}window._mpegtsP=null;}
   let _reconnectAttempts=0;
+  const _myGen=(window._mpegtsGen=(window._mpegtsGen||0)+1);
+  let _forbiddenRetried=false;
   const _MAX_RECONNECT=2;
   function startPlayer(){
     try{
@@ -2791,6 +2793,16 @@ function mpegtsPlay(vid,url,errId,onFail){
         const msg=(info&&info.msg)||detail||'';
         const isEarlyEOF=msg.indexOf('Early-EOF')>-1||msg.indexOf('UnrecoverableEarlyEof')>-1;
         if(!ok){
+          // 403 at startup is often the provider's one-connection limit: the old stream hasn't dropped yet.
+          // Wait for the server to release it, then retry once.
+          const is403=(info&&info.code===403)||msg.indexOf('Forbidden')>-1||msg.indexOf('403')>-1;
+          if(is403&&!_forbiddenRetried){
+            _forbiddenRetried=true;
+            try{p.destroy();}catch(e){}window._mpegtsP=null;
+            dbg('403 at start, waiting for provider to release old connection, retrying in 2.5s','warn');
+            setTimeout(function(){if(window._mpegtsGen===_myGen)startPlayer();},2500);
+            return;
+          }
           // Initial load failure — give up to outer handler
           p.destroy();window._mpegtsP=null;
           if(onFail)onFail();else showErr(errId,'TS error');
