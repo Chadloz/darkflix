@@ -6,6 +6,7 @@ const https = require('https');
 const http = require('http');
 const dns = require('dns');
 const net = require('net');
+const { execFile, spawn } = require('child_process');
 
 let storePath;
 let _store = {};
@@ -175,6 +176,30 @@ ipcMain.handle('store:set', (e, key, value) => {
 ipcMain.handle('store:getAll', () => {
   console.log('[DEBUG][Main] store:getAll - Status: Started');
   return _store;
+});
+
+// Open a stream in VLC (Mac, Windows, Linux). Only http(s) URLs are accepted.
+ipcMain.handle('ext:openVlc', async (e, url, startSec) => {
+  if (!/^https?:\/\//i.test(url || '')) return { ok: false, error: 'No playable stream address' };
+  const t = Math.max(0, Math.floor(Number(startSec) || 0));
+  const startArg = '--start-time=' + t;
+  if (process.platform === 'darwin') {
+    return await new Promise((resolve) => {
+      execFile('open', ['-a', 'VLC', url, '--args', startArg], (err) => {
+        resolve(err ? { ok: false, error: 'VLC not found. Install it from videolan.org' } : { ok: true });
+      });
+    });
+  }
+  if (process.platform === 'win32') {
+    const cands = [process.env['ProgramFiles'], process.env['ProgramFiles(x86)']]
+      .filter(Boolean).map(d => d + '\\VideoLAN\\VLC\\vlc.exe');
+    const exe = cands.find(f => { try { return fs.existsSync(f); } catch { return false; } });
+    if (!exe) return { ok: false, error: 'VLC not found. Install it from videolan.org' };
+    spawn(exe, [startArg, url], { detached: true, stdio: 'ignore' }).unref();
+    return { ok: true };
+  }
+  try { spawn('vlc', [startArg, url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref(); return { ok: true }; }
+  catch { return { ok: false, error: 'VLC not found' }; }
 });
 
 // Check whether a stream server is gone: its domain no longer exists, or it refuses connections.

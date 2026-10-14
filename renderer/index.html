@@ -304,7 +304,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <button class="btn sm" onclick="closeInline('mv')">✕ Close</button>
       <span class="inline-title" id="mvTitle">—</span>
       <button class="btn sm" id="mvFavBtn" onclick="toggleFavInline('mv')">☆</button>
-      <button class="btn sm" onclick="fsInline('mvVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button>
+      <button class="btn sm" onclick="fsInline('mvVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button><button class="btn sm" onclick="openInVlc('mv')" title="Open in VLC">▶ VLC</button>
     </div>
     <div class="err-bar" id="mvErr"></div>
     <div id="mvTMDB" style="display:none;gap:12px;padding:10px 12px;background:var(--s1);border-top:1px solid var(--border);align-items:flex-start;max-height:120px;overflow:hidden"></div>
@@ -331,7 +331,7 @@ input:checked+.toggle-slider:before{transform:translateX(20px);}
       <button class="btn sm" onclick="closeInline('sv')">✕ Close</button>
       <span class="inline-title" id="svTitle">—</span>
       <button class="btn sm" id="svFavBtn" onclick="toggleFavInline('sv')">☆</button>
-      <button class="btn sm" onclick="fsInline('svVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button>
+      <button class="btn sm" onclick="fsInline('svVid')">⛶</button><button class="btn sm" onclick="openCastPicker()" title="Cast">📡</button><button class="btn sm" onclick="openInVlc('sv')" title="Open in VLC">▶ VLC</button>
     </div>
     <div class="err-bar" id="svErr"></div>
     <div id="svTMDB" style="display:none;gap:12px;padding:10px 12px;background:var(--s1);border-top:1px solid var(--border);align-items:flex-start;max-height:120px;overflow:hidden"></div>
@@ -2629,6 +2629,35 @@ async function removeManual(id,t){
   S[key]=S[key].filter(function(c){return c.id!==id;});
   await saveAll();updateBadges();renderManualList();toast('Channel removed','ok');
 }
+// ── Open the current movie/episode in VLC at the same position ──
+async function openInVlc(p){
+  const vid=gel(p+'Vid');
+  let url=(vid&&/^https?:/i.test(vid.currentSrc||''))?vid.currentSrc:(typeof _activeStreamUrl!=='undefined'?_activeStreamUrl:'');
+  if(!/^https?:/i.test(url||'')){toast('Nothing playing to send to VLC','err');return;}
+  const t=vid?Math.floor(vid.currentTime||0):0;
+  if(vid){vid.pause();_userPausedVideo=true;}
+  const r=await window.darkflix.openVlc(url,t);
+  if(r&&r.ok){toast('Opened in VLC','ok');dbg('Opened in VLC at '+t+'s: '+url,'ok');}
+  else{toast((r&&r.error)||'Could not open VLC','err');}
+}
+// ── No-sound detection: warn when a movie/episode plays with zero decoded audio ──
+['mv','sv'].forEach(function(p){
+  const v=gel(p+'Vid');if(!v)return;
+  v.addEventListener('loadstart',function(){clearTimeout(v._audioChk);v._audioChecked=false;});
+  v.addEventListener('playing',function(){
+    if(v._audioChecked)return;
+    clearTimeout(v._audioChk);
+    v._audioChk=setTimeout(function(){
+      if(v.paused||v.muted||v.currentTime<2)return;
+      if(typeof v.webkitAudioDecodedByteCount!=='number')return;
+      v._audioChecked=true;
+      if(v.webkitAudioDecodedByteCount===0){
+        dbg('No audio decoded after 6s: unsupported audio format','warn');
+        toast('No sound: this video uses an audio format the player can\'t decode yet. Click ▶ VLC to watch it with sound.','err');
+      }
+    },6000);
+  });
+});
 async function addChannel(){
   const n=gel('acName').value.trim(),u=gel('acUrl').value.trim(),g=gel('acGroup').value.trim(),t=gel('acType').value;
   if(!n||!u){setSt('acSt','Name and URL required.','err');return;}
