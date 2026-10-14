@@ -732,7 +732,7 @@ async function loadState(){
     }
     if(all.recents)S.recents=all.recents;
     if(all.settings)S.settings={...S.settings,...all.settings};
-    dbg('loadState - Status: Success - Payload: '+S.accounts.length+' accounts, '+S.live.length+' live','ok');
+    markCatalogSaved();dbg('loadState - Status: Success - Payload: '+S.accounts.length+' accounts, '+S.live.length+' live','ok');
   }catch(e){dbg('loadState error: '+e.message,'err');}
 }
 const _saveQueue={};
@@ -777,10 +777,14 @@ async function saveAll(){
   await saveKeyNow('recents',S.recents);
   await saveKeyNow('settings',S.settings);
   // Large arrays — debounce to avoid blocking UI
-  saveKey('live',S.live);
-  saveKey('movies',S.movies);
-  saveKey('series',S.series);
+  if(catalogChanged('live'))saveKey('live',S.live);
+  if(catalogChanged('movies'))saveKey('movies',S.movies);
+  if(catalogChanged('series'))saveKey('series',S.series);
 }
+// Track the last saved/loaded catalog lists so unchanged lists are skipped
+const _catSaved={};
+function markCatalogSaved(){['live','movies','series'].forEach(function(k){_catSaved[k]=S[k];_catSaved[k+'Len']=(S[k]||[]).length;});}
+function catalogChanged(k){const a=S[k]||[];if(_catSaved[k]===a&&_catSaved[k+'Len']===a.length)return false;_catSaved[k]=a;_catSaved[k+'Len']=a.length;return true;}
 
 // ── Network ───────────────────────────────────────────────────────────────────
 async function fetchJSON(url,headers){
@@ -2565,7 +2569,7 @@ async function bgFill(aid,sv,u,p){
       await dl(1000);
       const vd=await fetchJSON(b+'&action=get_vod_streams');
       const nM=(Array.isArray(vd)?vd:[]).map(function(m){return{id:U(),acctId:aid,name:m.name||'?',url:sv+'/movie/'+encodeURIComponent(u)+'/'+encodeURIComponent(p)+'/'+m.stream_id+'.'+(m.container_extension||'mp4'),group:vm[m.category_id]||'',logo:m.stream_icon||'',rating:m.rating||'',plot:m.plot||'',year:m.year||''};});
-      if(nM.length){S.movies=S.movies.concat(nM);await saveKey('movies',S.movies);updateBadges();dbg('bgFill: '+nM.length+' movies loaded','ok');}
+      if(nM.length){S.movies=S.movies.concat(nM);catalogChanged('movies');await saveKey('movies',S.movies);updateBadges();dbg('bgFill: '+nM.length+' movies loaded','ok');}
       const a=S.accounts.find(function(x){return x.id===aid;});if(a)a.vodCount=nM.length;await saveKey('accounts',S.accounts);
     }catch(e){dbg('bgFill movies failed: '+e.message,'warn');}
   }
@@ -2578,7 +2582,7 @@ async function bgFill(aid,sv,u,p){
       await dl(1000);
       const sd=await fetchJSON(b+'&action=get_series');
       const nS=(Array.isArray(sd)?sd:[]).map(function(s){return{id:U(),acctId:aid,seriesId:s.series_id,name:s.name||'?',url:'',group:sm[s.category_id]||'',logo:s.cover||'',rating:s.rating||'',year:s.year||''};});
-      if(nS.length){S.series=S.series.concat(nS);await saveKey('series',S.series);updateBadges();dbg('bgFill: '+nS.length+' series loaded','ok');}
+      if(nS.length){S.series=S.series.concat(nS);catalogChanged('series');await saveKey('series',S.series);updateBadges();dbg('bgFill: '+nS.length+' series loaded','ok');}
       const a=S.accounts.find(function(x){return x.id===aid;});if(a)a.seriesCount=nS.length;await saveKey('accounts',S.accounts);
     }catch(e){dbg('bgFill series failed: '+e.message,'warn');}
   }
