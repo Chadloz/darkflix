@@ -8,15 +8,77 @@ const http = require('http');
 let storePath;
 let _store = {};
 
+// Storage is split: small settings file + big channel catalog file.
+// Small saves (wasPlaying, lastChannel) never rewrite the big catalog.
+const BIG_KEYS = new Set(['live', 'movies', 'series']);
+let catalogPath;
+const _dirty = { main: false, catalog: false };
+let _saveTimer = null, _saving = false, _pending = false;
+
+function pickKeys(big) {
+  const o = {};
+  for (const k of Object.keys(_store)) { if (BIG_KEYS.has(k) === big) o[k] = _store[k]; }
+  return o;
+}
 function storeLoad() {
+  catalogPath = storePath.replace(/\.json$/, '-catalog.json');
   try { _store = JSON.parse(fs.readFileSync(storePath, 'utf-8')); }
   catch { _store = {}; }
+  try {
+    if (fs.existsSync(catalogPath)) {
+      const cat = JSON.parse(fs.readFileSync(catalogPath, 'utf-8'));
+      for (const k of Object.keys(cat)) _store[k] = cat[k];
+    } else {
+      // First run after upgrade: move channel lists into the catalog file
+      _dirty.main = true; _dirty.catalog = true;
+      console.log('[DEBUG][Main] storeLoad - Status: Migrating to split storage');
+    }
+  } catch (e) { console.error('[DEBUG][Main] storeLoad catalog - Status: Error - Payload: ' + e.message); }
   console.log('[DEBUG][Main] storeLoad - Status: Success - Payload: keys=' + Object.keys(_store).join(','));
+  if (_dirty.main || _dirty.catalog) scheduleSave(2000);
 }
-function storeSave() {
-  try { fs.writeFileSync(storePath, JSON.stringify(_store, null, 2)); }
-  catch (e) { console.error('[DEBUG][Main] storeSave - Status: Error - Payload: ' + e.message); }
+async function writeAtomic(file, data) {
+  const tmp = file + '.tmp';
+  await fs.promises.writeFile(tmp, data);
+  await fs.promises.rename(tmp, file);
 }
+async function flushSave() {
+  if (_saving) { _pending = true; return; }
+  _saving = true;
+  try {
+    if (_dirty.main) { _dirty.main = false; await writeAtomic(storePath, JSON.stringify(pickKeys(false))); }
+    if (_dirty.catalog) {
+      _dirty.catalog = false;
+      const t = Date.now();
+      await writeAtomic(catalogPath, JSON.stringify(pickKeys(true)));
+      console.log('[DEBUG][Main] storeSave catalog - Status: Success - Payload: ' + (Date.now() - t) + 'ms');
+    }
+  } catch (e) { console.error('[DEBUG][Main] storeSave - Status: Error - Payload: ' + e.message); }
+  _saving = false;
+  if (_pending) { _pending = false; flushSave(); }
+}
+function scheduleSave(delay) {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(flushSave, delay == null ? 1000 : delay);
+}
+function storeSave(key) {
+  if (key === undefined) { _dirty.main = true; _dirty.catalog = true; }
+  else if (BIG_KEYS.has(key)) _dirty.catalog = true;
+  else _dirty.main = true;
+  scheduleSave();
+}
+function writeSyncAtomic(file, data) {
+  fs.writeFileSync(file + '.tmp', data);
+  fs.renameSync(file + '.tmp', file);
+}
+// Flush anything unsaved when the app quits
+app.on('before-quit', () => {
+  clearTimeout(_saveTimer);
+  try {
+    writeSyncAtomic(storePath, JSON.stringify(pickKeys(false)));
+    if (_dirty.catalog || _saving) writeSyncAtomic(catalogPath, JSON.stringify(pickKeys(true)));
+  } catch (e) { console.error('[DEBUG][Main] storeSave quit - Status: Error - Payload: ' + e.message); }
+});
 
 let win;
 function createWindow() {
@@ -106,7 +168,7 @@ ipcMain.handle('store:get', (e, key) => {
 ipcMain.handle('store:set', (e, key, value) => {
   console.log(`[DEBUG][Main] store:set - Status: Started - Payload: ${key}`);
   _store[key] = value;
-  storeSave();
+  storeSave(key);
 });
 ipcMain.handle('store:getAll', () => {
   console.log('[DEBUG][Main] store:getAll - Status: Started');
