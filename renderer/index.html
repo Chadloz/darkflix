@@ -2654,6 +2654,13 @@ function showErr(id,msg){
   const isDnsErr=(msg||'').indexOf('ERR_NAME_NOT_RESOLVED')>-1||(msg||'').indexOf('ERR_CONNECTION_REFUSED')>-1||(msg||'').indexOf('ERR_INTERNET_DISCONNECTED')>-1||(msg||'').indexOf('ERR_ADDRESS_UNREACHABLE')>-1;
   if(_activeStreamUrl&&!isCodecErr&&(msg==='Stream unavailable'||msg==='Stream timed out'||(msg||'').indexOf('manifestLoadError')>-1||(msg||'').indexOf('Unauthorized')>-1)){
     markDeadStream(_activeStreamUrl,isDnsErr);
+    // The browser hides the real network error, so ask the main process to check DNS
+    if(!isDnsErr&&window.darkflix.checkHost){
+      const _u=_activeStreamUrl;
+      window.darkflix.checkHost(_u).then(function(r){
+        if(r&&r.dead){markDeadStream(_u,true);dbg('Server domain is gone, marking host dead: '+r.host,'warn');}
+      }).catch(function(){});
+    }
   }
   if(tryFailover(id)) return;
   // Try StreamIMDB fallback for movie/series

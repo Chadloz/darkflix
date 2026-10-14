@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
+const dns = require('dns');
+const net = require('net');
 
 let storePath;
 let _store = {};
@@ -173,6 +175,22 @@ ipcMain.handle('store:set', (e, key, value) => {
 ipcMain.handle('store:getAll', () => {
   console.log('[DEBUG][Main] store:getAll - Status: Started');
   return _store;
+});
+
+// Check whether a stream server's domain still exists.
+// Returns dead:true only if the domain is gone AND the internet itself works.
+ipcMain.handle('net:checkHost', async (e, url) => {
+  let host = '';
+  try { host = new URL(url).hostname; } catch { return { dead: false }; }
+  if (!host || net.isIP(host)) return { dead: false, host };
+  try { await dns.promises.lookup(host); return { dead: false, host }; }
+  catch (err) {
+    if (err.code !== 'ENOTFOUND' && err.code !== 'EAI_NONAME') return { dead: false, host, code: err.code };
+    try { await dns.promises.lookup('cloudflare.com'); }
+    catch { console.log('[DEBUG][Main] net:checkHost - Status: Offline, not marking ' + host); return { dead: false, host, offline: true }; }
+    console.log('[DEBUG][Main] net:checkHost - Status: Dead domain - Payload: ' + host);
+    return { dead: true, host, code: err.code };
+  }
 });
 
 ipcMain.handle('net:fetchText', async (e, url, headers = {}) => {
