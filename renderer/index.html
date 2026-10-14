@@ -1565,7 +1565,7 @@ async function loadEps(show){
     if(ok)return;
     const fb=fallbackEpList(show);
     if(fb){tgt.innerHTML=fb;return;}
-    tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';
+    tgt.innerHTML='<div class="ib">No episodes found.</div>';
     tryStreamIMDBForSeries(show);
     return;
   }
@@ -1574,7 +1574,7 @@ async function loadEps(show){
   if(!acct||!show.seriesId){
     const fb=fallbackEpList(show);
     if(fb){tgt.innerHTML=fb;return;}
-    tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';
+    tgt.innerHTML='<div class="ib">No episodes found.</div>';
     tryStreamIMDBForSeries(show);
     return;
   }
@@ -1582,7 +1582,7 @@ async function loadEps(show){
     const b=acct.server+'/player_api.php?username='+encodeURIComponent(acct.user)+'&password='+encodeURIComponent(acct.pass);
     const r=await fetchJSON(b+'&action=get_series_info&series_id='+show.seriesId);
     const epsCount=r&&r.episodes?Object.keys(r.episodes).length:0;
-    if(!r||!r.episodes||epsCount===0){const fb=fallbackEpList(show);if(fb){tgt.innerHTML=fb;return;}tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';tryStreamIMDBForSeries(show);return;}
+    if(!r||!r.episodes||epsCount===0){const fb=fallbackEpList(show);if(fb){tgt.innerHTML=fb;return;}tgt.innerHTML='<div class="ib">No episodes found.</div>';tryStreamIMDBForSeries(show);return;}
     let html='';
     const seasons=Object.keys(r.episodes).sort(function(a,b){return parseInt(a)-parseInt(b);});
     for(const sn of seasons){
@@ -1598,12 +1598,13 @@ async function loadEps(show){
       html+='</div>';
     }
     tgt.innerHTML=html;
-  }catch(e){const fb=fallbackEpList(show);if(fb){tgt.innerHTML=fb;return;}tgt.innerHTML='<div class="ib">No episodes found. Trying backup source...</div>';tryStreamIMDBForSeries(show);}
+  }catch(e){const fb=fallbackEpList(show);if(fb){tgt.innerHTML=fb;return;}tgt.innerHTML='<div class="ib">No episodes found.</div>';tryStreamIMDBForSeries(show);}
 }
 
 
 
 async function tryStreamIMDBForSeries(show){
+  return; // StreamIMDB removed: service is dead
   try{
     const meta=await fetchTMDB(show.name,'tv');
     if(!meta||!meta.imdbId){dbg('No IMDB ID found for '+show.name,'warn');return;}
@@ -2775,6 +2776,7 @@ function clearStreamIframe(forceRemove) {
 }
 
 async function tryStreamIMDBFallback(errId, itemName, type) {
+  return false; // StreamIMDB removed: service is dead
   if(errId === 'liveErr') return false;
   const tmdbType = type === 'movie' ? 'movie' : 'tv';
   const meta = await fetchTMDB(itemName, tmdbType);
