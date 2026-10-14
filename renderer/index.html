@@ -882,15 +882,6 @@ function nav(v,isBack){
         dbg('PiP started from '+sourceView,'ok');
       }).catch(function(e){dbg('PiP failed: '+e.message,'warn');});
     }
-    // Pseudo-PiP for backup-source iframe
-    const iframe=gel('streamFallbackIframe');
-    if(iframe&&!gel('iframePipWrap')){
-      moveStreamIframeToPip(iframe);
-    }
-  }
-  // Returning to a video view — close pseudo-PiP (we're about to play something new)
-  if(goingToVideo&&gel('iframePipWrap')){
-    closeIframePip();
   }
 
   CV=v;
@@ -1603,50 +1594,7 @@ async function loadEps(show){
 
 
 
-async function tryStreamIMDBForSeries(show){
-  return; // StreamIMDB removed: service is dead
-  try{
-    const meta=await fetchTMDB(show.name,'tv');
-    if(!meta||!meta.imdbId){dbg('No IMDB ID found for '+show.name,'warn');return;}
-    dbg('No episodes — trying StreamIMDB for '+show.name+' ('+meta.imdbId+')','ok');
-    showStreamIframe(meta.imdbId,'tv',1,1,0);
-    gel('svTitle').textContent=show.name+' (Backup Source)';
-    toast('Playing from backup source','ok');
-    // Fetch full season/episode data from TMDB to build episode list
-    if(meta.tmdbId){
-      try{
-        const tdr=await fetch('https://api.themoviedb.org/3/tv/'+meta.tmdbId+'?api_token=replace_with_real',{
-          headers:{'Authorization':'Bearer '+TMDB_TOKEN,'Content-Type':'application/json;charset=utf-8'}
-        });
-        const tvData=await tdr.json();
-        if(tvData&&tvData.seasons&&tvData.seasons.length){
-          const tgt=gel('svEps');
-          let html='';
-          for(const s of tvData.seasons){
-            if(s.season_number===0)continue; // skip specials
-            const sdr=await fetch('https://api.themoviedb.org/3/tv/'+meta.tmdbId+'/season/'+s.season_number,{
-              headers:{'Authorization':'Bearer '+TMDB_TOKEN,'Content-Type':'application/json;charset=utf-8'}
-            });
-            const sdata=await sdr.json();
-            if(sdata&&sdata.episodes&&sdata.episodes.length){
-              html+='<div style="margin-top:10px"><div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px">Season '+s.season_number+'</div>';
-              sdata.episodes.forEach(function(ep){
-                const title=E(ep.name||'Episode '+ep.episode_number);
-                const safeTitle=title.replace(/'/g,"\\'");
-                html+='<div class="grid-item" style="padding:8px 12px" onclick="showStreamIframe(\''+meta.imdbId+'\',\'tv\','+s.season_number+','+ep.episode_number+',0);gel(\'svTitle\').textContent=\''+safeTitle+' (Backup)\'">'
-                  +'<div style="width:28px;text-align:center;font-family:JetBrains Mono,monospace;font-size:11px;color:var(--dim)">'+ep.episode_number+'</div>'
-                  +'<div class="g-info"><div class="g-name">'+title+'</div></div>'
-                  +'<span class="play-arrow">▶</span></div>';
-              });
-              html+='</div>';
-            }
-          }
-          if(html)tgt.innerHTML=html;
-        }
-      }catch(e){dbg('TMDB episode fetch failed: '+e.message,'warn');}
-    }
-  }catch(e){dbg('StreamIMDB lookup failed: '+e.message,'warn');}
-}
+async function tryStreamIMDBForSeries(show){} // StreamIMDB removed
 
 
 // ── Keyboard Hotkeys ──────────────────────────────────────────────────────────
@@ -2670,145 +2618,11 @@ function toast(msg,type){
   _toastTimer=setTimeout(function(){el.classList.remove('show');},3000);
 }
 function clrErr(id){const e=gel(id);if(e){e.textContent='';e.classList.remove('show');}}
-// ── StreamIMDB Fallback ───────────────────────────────────────────────────────
-const STREAM_SOURCES = [
-  'https://streamimdb.ru/embed/movie/{id}',
-  'https://vidsrc.me/embed/{id}',
-  'https://vidsrc.cc/v2/embed/movie/{id}',
-];
-const STREAM_SOURCES_TV = [
-  'https://streamimdb.ru/embed/tv/{id}/{s}/{e}',
-  'https://vidsrc.me/embed/{id}/{s}-{e}',
-  'https://vidsrc.cc/v2/embed/tv/{id}/{s}/{e}',
-];
-
-let _streamIframeActive = false;
-let _lastPlayedItem = null;
-
-function moveStreamIframeToPip(iframe){
-  // Remove any existing pseudo-PiP
-  closeIframePip();
-  // Build the floating container
-  const wrap=document.createElement('div');
-  wrap.id='iframePipWrap';
-  wrap.className='iframe-pip';
-  wrap.innerHTML='<div class="pip-bar"><span>📺 Backup Source</span><div><button class="pip-expand" title="Expand">⛶</button><button class="pip-close" title="Close">✕</button></div></div>';
-  // Move the iframe into it
-  iframe.style.cssText='width:100%;height:100%;border:none;display:block;background:#000;margin-top:24px;height:calc(100% - 24px);';
-  wrap.appendChild(iframe);
-  document.body.appendChild(wrap);
-  // Wire up close button
-  wrap.querySelector('.pip-close').onclick=function(){closeIframePip();};
-  // Wire up expand button — bring user back to the player view
-  wrap.querySelector('.pip-expand').onclick=function(){
-    if(_lastPlayedItem&&_lastPlayedItem.type==='movie'){nav('movies');}
-    else if(_lastPlayedItem&&_lastPlayedItem.type==='series'){nav('series');}
-    setTimeout(function(){closeIframePip(true);},100);
-  };
-  // Make it draggable via the top bar
-  const bar=wrap.querySelector('.pip-bar');
-  let drag=false,offX=0,offY=0;
-  bar.addEventListener('mousedown',function(e){
-    if(e.target.tagName==='BUTTON')return;
-    drag=true;
-    const r=wrap.getBoundingClientRect();
-    offX=e.clientX-r.left;offY=e.clientY-r.top;
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove',function(e){
-    if(!drag)return;
-    wrap.style.left=(e.clientX-offX)+'px';
-    wrap.style.top=(e.clientY-offY)+'px';
-    wrap.style.right='auto';wrap.style.bottom='auto';
-  });
-  document.addEventListener('mouseup',function(){drag=false;});
-  dbg('Iframe moved to pseudo-PiP','ok');
-}
-
-function closeIframePip(keepIframe){
-  const wrap=gel('iframePipWrap');
-  if(!wrap)return;
-  if(!keepIframe){
-    const iframe=wrap.querySelector('iframe');
-    if(iframe)iframe.remove();
-  }
-  wrap.remove();
-  _streamIframeActive=false;
-}
-
-function showStreamIframe(imdbId, type, season, episode, sourceIndex) {
-  sourceIndex = sourceIndex || 0;
-  const vid = type === 'movie' ? gel('mvVid') : gel('svVid');
-  if(!vid) return;
-
-  // Clean up any existing iframe (inline OR in pseudo-PiP)
-  const existingIframe = gel('streamFallbackIframe');
-  if(existingIframe) existingIframe.remove();
-  // Also tear down any leftover pseudo-PiP wrap
-  if(typeof closeIframePip==='function'&&gel('iframePipWrap'))closeIframePip();
-
-  const sources = type === 'movie' ? STREAM_SOURCES : STREAM_SOURCES_TV;
-  if(sourceIndex >= sources.length) {
-    dbg('All StreamIMDB sources failed', 'err');
-    toast('Backup sources unavailable', 'err');
-    return;
-  }
-
-  const url = sources[sourceIndex]
-    .replace('{id}', imdbId)
-    .replace('{s}', season || 1)
-    .replace('{e}', episode || 1);
-
-  const iframe = document.createElement('iframe');
-  iframe.id = 'streamFallbackIframe';
-  iframe.src = url;
-  iframe.allowFullscreen = true;
-  iframe.allow = 'fullscreen; autoplay';
-  iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-presentation';
-  iframe.style.cssText = 'width:100%;height:480px;border:none;display:block;background:#000';
-
-  // Auto-cycle to next source if this one fails
-  iframe.onerror = function() {
-    dbg('Source ' + sourceIndex + ' failed, trying next...', 'warn');
-    showStreamIframe(imdbId, type, season, episode, sourceIndex + 1);
-  };
-
-  vid.style.display = 'none';
-  // Insert iframe right after the video element, so inline-bar stays below
-  vid.parentNode.insertBefore(iframe, vid.nextSibling);
-
-  _streamIframeActive = true;
-  if(sourceIndex === 0) toast('Playing from backup source', 'ok');
-  dbg('StreamIMDB fallback [' + sourceIndex + ']: ' + url, 'warn');
-}
-
-function clearStreamIframe(forceRemove) {
-  const iframe = gel('streamFallbackIframe');
-  if(iframe){
-    if(forceRemove){
-      iframe.remove();
-    }else{
-      // Move iframe into a floating overlay (pseudo-PiP)
-      moveStreamIframeToPip(iframe);
-    }
-  }
-  const mv = gel('mvVid');
-  const sv = gel('svVid');
-  if(mv) mv.style.display = '';
-  if(sv) sv.style.display = '';
-  _streamIframeActive = false;
-}
-
-async function tryStreamIMDBFallback(errId, itemName, type) {
-  return false; // StreamIMDB removed: service is dead
-  if(errId === 'liveErr') return false;
-  const tmdbType = type === 'movie' ? 'movie' : 'tv';
-  const meta = await fetchTMDB(itemName, tmdbType);
-  if(!meta || !meta.imdbId) return false;
-  dbg('Trying StreamIMDB fallback for ' + meta.imdbId, 'warn');
-  showStreamIframe(meta.imdbId, type);
-  return true;
-}
+// StreamIMDB backup source removed (service is dead). Stubs kept for old call sites.
+let _streamIframeActive=false;
+function closeIframePip(){}
+function clearStreamIframe(){}
+async function tryStreamIMDBFallback(){return false;}
 
 // ── Stream Auto-Failover ──────────────────────────────────────────────────────
 let _failoverUsed = new Set();
