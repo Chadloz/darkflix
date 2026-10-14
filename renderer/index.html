@@ -1140,6 +1140,7 @@ function playChannel(id){
   clrErr('liveErr');
   var vid=gel('liveVid');
   if(vid._liveReconnect){vid.removeEventListener('ended',vid._liveReconnect);vid._liveReconnect=null;}
+  if(vid._stallTimer){clearInterval(vid._stallTimer);vid._stallTimer=null;}
   if(document.pictureInPictureElement&&!_pipStepping){_pipSource=null;document.exitPictureInPicture().catch(function(){});}
   if(gel('iframePipWrap'))closeIframePip();
   var acct=S.accounts.find(function(a){return a.id===ch.acctId;});
@@ -1209,6 +1210,15 @@ function playChannel(id){
       },_RECONNECT_DELAY_MS);
     };
     vid.addEventListener('ended',vid._liveReconnect);
+    // Stall watchdog: if the picture stops moving for 10s while playing, reconnect
+    var _lastT=-1,_stuckFor=0;
+    vid._stallTimer=setInterval(function(){
+      if(activeChId!==ch.id){clearInterval(vid._stallTimer);vid._stallTimer=null;return;}
+      if(vid.paused||_userPausedVideo){_stuckFor=0;_lastT=vid.currentTime;return;}
+      if(vid.currentTime>0&&vid.currentTime===_lastT){_stuckFor+=2;}else{_stuckFor=0;}
+      _lastT=vid.currentTime;
+      if(_stuckFor>=10){_stuckFor=0;dbg('Stream stalled for 10s, reconnecting','warn');if(vid._liveReconnect)vid._liveReconnect();}
+    },2000);
   };
   if(acct&&acct.type==='stalker'){
     gel('nowName').textContent=ch.name+' (resolving...)';
