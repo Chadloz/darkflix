@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Black Mango</title>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-<script src="https://cdn.jsdelivr.net/npm/shaka-player@4.14.6/dist/shaka-player.compiled.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
+<script src="vendor/hls.min.js"></script>
+<script src="vendor/shaka-player.compiled.min.js"></script>
+<script src="vendor/mpegts.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0a0a0a;--s1:#111;--s2:#1a1a1a;--s3:#242424;--border:#2e2e2e;--text:#f0f0f0;--dim:#888;--dim2:#555;--accent:#ff8c00;--ad:#ff8c0022;--green:#4caf50;--gd:#4caf5022;--danger:#ff4455;--r:8px;}
@@ -988,17 +988,49 @@ function markLogoBroken(url){_brokenLogos.add(url);}
 function isLogoBroken(url){return _brokenLogos.has(url);}
 // Stash fallback HTML in a global keyed by URL — avoids the quote-escape mess
 const _logoFallbacks={};
+// Logo URL cleanup: repair typos, rescue embedded images, drop junk
+function cleanLogoUrl(url){
+  if(!url)return '';
+  url=String(url).trim();
+  const di=url.indexOf('data:image/');
+  if(di>0)url=url.slice(di);
+  if(/^data:image\//i.test(url))return url;
+  if(/^hhttps?:\/\//i.test(url))url=url.slice(1);
+  if(url.startsWith('//'))url='https:'+url;
+  if(!/^https?:\/\//i.test(url))return '';
+  return url;
+}
+// Host-level dead logo cache: skip hosts that only ever fail
+const _logoHostFails={},_logoHostOk={},_deadLogoHosts=new Set();
+function logoHost(url){if(url.startsWith('data:'))return '';try{return new URL(url).host;}catch(e){return '';}}
 function safeLogo(url,ini){
+  url=cleanLogoUrl(url);
   if(!url||isLogoBroken(url))return ini;
+  const h=logoHost(url);
+  if(h&&_deadLogoHosts.has(h))return ini;
   _logoFallbacks[url]=ini;
-  return '<img src="'+E(url)+'" data-fburl="'+E(url)+'" class="safe-logo">';
+  return '<img src="'+E(url)+'" data-fburl="'+E(url)+'" class="safe-logo" loading="lazy" decoding="async">';
 }
 // Delegated error handler for all safe-logo images
 document.addEventListener('error',function(e){
   const t=e.target;
   if(!t||t.tagName!=='IMG'||!t.classList.contains('safe-logo'))return;
   const u=t.getAttribute('data-fburl');
-  if(u){markLogoBroken(u);if(_logoFallbacks[u]){t.outerHTML=_logoFallbacks[u];}}
+  if(!u)return;
+  markLogoBroken(u);
+  const h=logoHost(u);
+  if(h){
+    _logoHostFails[h]=(_logoHostFails[h]||0)+1;
+    if(_logoHostFails[h]>=5&&!_logoHostOk[h]&&!_deadLogoHosts.has(h)){_deadLogoHosts.add(h);dbg('Logo host marked dead: '+h,'warn');}
+  }
+  if(_logoFallbacks[u]){t.outerHTML=_logoFallbacks[u];}
+},true);
+// Track successful logo loads so good hosts never get marked dead
+document.addEventListener('load',function(e){
+  const t=e.target;
+  if(!t||t.tagName!=='IMG'||!t.classList.contains('safe-logo'))return;
+  const h=logoHost(t.getAttribute('data-fburl')||'');
+  if(h)_logoHostOk[h]=true;
 },true);
 
 let _liveList=[];
@@ -1283,7 +1315,7 @@ function jumpAZ(listId,letter){
       function mkRow2(m){
         const ini=E(m.name.slice(0,2));
         return '<div class="grid-item" data-id="'+m.id+'" onclick="playItem(\''+m.id+'\',\''+type+'\')">'
-          +'<div class="g-logo">'+(m.logo?'<img src="'+E(m.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
+          +'<div class="g-logo">'+(m.logo?'<img loading="lazy" src="'+E(m.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
           +'<div class="g-info"><div class="g-name">'+E(m.name)+'</div><div class="g-meta">'+E(m.group||'')+(m.year?' • '+m.year:'')+'</div></div>'
           +'<span class="play-arrow">▶</span></div>';
       }
@@ -1308,7 +1340,7 @@ function renderGrid(listId,list,type){
     const ini=E(m.name.slice(0,2));
     const isActive=m.id===activeItemId;
     return '<div class="grid-item'+(isActive?' active':'')+'" data-id="'+m.id+'" onclick="playItem(\''+m.id+'\',\''+type+'\')">'
-      +'<div class="g-logo">'+(m.logo?'<img src="'+E(m.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
+      +'<div class="g-logo">'+(m.logo?'<img loading="lazy" src="'+E(m.logo)+'" onerror="this.outerHTML=\''+ini+'\'">':ini)+'</div>'
       +'<div class="g-info"><div class="g-name">'+E(m.name)+'</div><div class="g-meta">'+E(m.group||'')+(m.year?' • '+m.year:'')+(S.accounts.length>1?' <span style="color:var(--accent);font-size:10px;font-weight:600">'+E((S.accounts.find(function(a){return a.id===m.acctId;})||{name:''}).name)+'</span>':'')+'</div></div>'
       +'<span class="play-arrow">▶</span></div>';
   }
@@ -2168,7 +2200,7 @@ async function _reloadAcctImpl(id){
             var cmd=ch.cmd||'',su=cmd;
             if(cmd.startsWith('ffmpeg '))su=cmd.replace('ffmpeg ','');
             else{var m=cmd.match(/(https?:\/\/[^\s]+)/);if(m)su=m[1];}
-            all.push({id:U(),acctId:a.id,name:ch.name||'?',url:su,cmd:cmd,group:gm[ch.tv_genre_id]||'',logo:ch.logo?(ch.logo.startsWith('http')?ch.logo:a.url+'/'+ch.logo):'',chId:ch.id||''});
+            all.push({id:U(),acctId:a.id,name:ch.name||'?',url:su,cmd:cmd,group:gm[ch.tv_genre_id]||'',logo:ch.logo?(/^(https?:|data:)/i.test(ch.logo)?ch.logo:a.url+'/'+ch.logo):'',chId:ch.id||''});
           });
           const total=parseInt(cr.js.total_items)||0;
           const perPage=parseInt(cr.js.max_page_items)||14;
@@ -2364,7 +2396,7 @@ async function connectAcct(){
             var cmd=ch.cmd||'',su=cmd;
             if(cmd.startsWith('ffmpeg '))su=cmd.replace('ffmpeg ','');
             else{var m=cmd.match(/(https?:\/\/[^\s]+)/);if(m)su=m[1];}
-            all.push({id:U(),acctId:aid,name:ch.name||'?',url:su,cmd:cmd,group:gm[ch.tv_genre_id]||'',logo:ch.logo?(ch.logo.startsWith('http')?ch.logo:url+'/'+ch.logo):'',chId:ch.id||''});
+            all.push({id:U(),acctId:aid,name:ch.name||'?',url:su,cmd:cmd,group:gm[ch.tv_genre_id]||'',logo:ch.logo?(/^(https?:|data:)/i.test(ch.logo)?ch.logo:url+'/'+ch.logo):'',chId:ch.id||''});
           });
           const total=parseInt(cr.js.total_items)||0;
           const perPage=parseInt(cr.js.max_page_items)||14;
